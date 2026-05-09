@@ -46,7 +46,7 @@ const fmtK = n => n>=1000000?`$${(n/1000000).toFixed(2)}M`:n>=1000?`$${(n/1000).
 const getRoast  = cat => { const a=ROASTS[cat]||ROASTS.default; return a[Math.floor(Math.random()*a.length)]; };
 const getPraise = () => PRAISES[Math.floor(Math.random()*PRAISES.length)];
 
-const SKEY = "drMoneyV9";
+const SKEY = "drMoneyV10";
 
 const EMPTY = {
   transactions: [],
@@ -54,7 +54,7 @@ const EMPTY = {
   debts:  { debt_bofa:0, debt_chase:0, debt_lowes:0, debt_cap1:0 },
   balHistory: [],
   streak:0, lastLog:null,
-  theme: "dark", // "dark" or "light"
+  theme: "dark",
 };
 
 const hasLS = (() => { try { localStorage.setItem("__t","1"); localStorage.removeItem("__t"); return true; } catch { return false; } })();
@@ -62,7 +62,6 @@ let memStore = null;
 const storageRead  = () => { try { return hasLS ? localStorage.getItem(SKEY) : memStore; } catch { return memStore; } };
 const storageWrite = (v) => { try { if(hasLS) localStorage.setItem(SKEY,v); memStore = v; return true; } catch { memStore=v; return false; } };
 
-// ─── THEME PALETTES ──────────────────────────────────────────────────────────
 const THEMES = {
   dark: {
     W: "#ffffff", S: "#cbd5e1", G: "#34d399", R: "#f87171", Y: "#fbbf24", B: "#60a5fa", P: "#a78bfa",
@@ -101,6 +100,11 @@ export default function App() {
     type:"expense", amount:"", category:"Food", note:"", date:todayStr(),
     fromAccount:"checking", toAccount:"checking"
   });
+  // Matt-bot state
+  const [mbInput, setMbInput] = useState("");
+  const [mbStatus, setMbStatus] = useState("idle"); // idle | thinking | preview | error
+  const [mbPreview, setMbPreview] = useState(null);
+  const [mbError, setMbError] = useState("");
   const saveRef             = useRef(null);
   const isFirst             = useRef(true);
 
@@ -218,6 +222,78 @@ export default function App() {
     setScreen("dashboard");
   };
 
+  // ─── MATT-BOT API CALL ─────────────────────────────────────────────────────
+  const callMattBot = async () => {
+    if (!mbInput.trim()) { setMbError("Tell Matt-bot what happened first!"); return; }
+    setMbStatus("thinking");
+    setMbError("");
+    setMbPreview(null);
+    try {
+      const response = await fetch('/api/mattbot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userText: mbInput,
+          accounts: ALL_ACCOUNTS,
+          categories: CATEGORIES,
+        }),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Matt-bot is napping');
+      }
+      const result = await response.json();
+      if (result.needsClarification) {
+        setMbError(result.clarificationMessage || "Matt-bot needs more info");
+        setMbStatus("error");
+      } else {
+        setMbPreview(result.transactions || []);
+        setMbStatus("preview");
+      }
+    } catch (err) {
+      setMbError(err.message);
+      setMbStatus("error");
+    }
+  };
+
+  const confirmMattBot = () => {
+    if (!mbPreview || mbPreview.length === 0) return;
+    let workingAssets = {...assets};
+    let workingDebts = {...debts};
+    const newTxns = [];
+    mbPreview.forEach(p => {
+      const tx = {
+        id: Date.now() + Math.random(),
+        type: p.type,
+        amount: p.amount,
+        category: p.category || "Other",
+        note: p.note || "Logged by Matt-bot",
+        date: p.date || todayStr(),
+        fromAccount: p.fromAccount || "checking",
+        toAccount: p.toAccount || "checking",
+      };
+      const result = applyToBalances(tx, workingAssets, workingDebts);
+      workingAssets = result.assets;
+      workingDebts = result.debts;
+      newTxns.push(tx);
+    });
+    patch({
+      transactions: [...newTxns, ...transactions],
+      assets: workingAssets,
+      debts: workingDebts,
+    });
+    setMbInput("");
+    setMbPreview(null);
+    setMbStatus("idle");
+    showToast(`Matt-bot logged ${newTxns.length} transaction${newTxns.length>1?"s":""}! 🤖`, "praise");
+  };
+
+  const cancelMattBot = () => {
+    setMbPreview(null);
+    setMbStatus("idle");
+    setMbError("");
+  };
+
   const handleBalSave = () => {
     const newA = { ...assets };
     const newD = { ...debts };
@@ -310,14 +386,18 @@ export default function App() {
         .btn{cursor:pointer;border:none;font-family:'Courier New',monospace;transition:all 0.15s;}
         .btn:hover{filter:brightness(${theme==="dark"?"1.15":"0.96"});}
         .btn:active{transform:scale(0.96);}
-        input,select{font-family:'Courier New',monospace;background:${t.inputBg};border:1px solid ${t.inputBorder};color:${t.W};border-radius:8px;padding:9px 11px;width:100%;font-size:13px;outline:none;}
-        input:focus,select:focus{border-color:${t.G};box-shadow:0 0 0 2px ${t.G}33;}
+        input,select,textarea{font-family:'Courier New',monospace;background:${t.inputBg};border:1px solid ${t.inputBorder};color:${t.W};border-radius:8px;padding:9px 11px;width:100%;font-size:13px;outline:none;}
+        input:focus,select:focus,textarea:focus{border-color:${t.G};box-shadow:0 0 0 2px ${t.G}33;}
         select option{background:${t.selectBg};color:${t.W};}
         input[type=date]{color-scheme:${theme};}
-        input::placeholder{color:${t.placeholderColor};}
+        input::placeholder,textarea::placeholder{color:${t.placeholderColor};}
         .slide{animation:su 0.22s ease-out;}
         @keyframes su{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
         .lbl{font-size:9px;color:${t.secondaryText};letter-spacing:0.14em;text-transform:uppercase;margin-bottom:4px;font-weight:700;}
+        .mbBounce{animation:mbBounce 2s ease-in-out infinite;}
+        @keyframes mbBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+        .mbThink{animation:mbThink 0.6s ease-in-out infinite alternate;}
+        @keyframes mbThink{from{transform:rotate(-2deg) scale(1)}to{transform:rotate(2deg) scale(1.02)}}
       `}</style>
 
       {toast&&(
@@ -344,7 +424,7 @@ export default function App() {
             <button onClick={toggleTheme} className="btn" style={{
               background: t.CARD, border:`1px solid ${t.BORDER}`, borderRadius:18,
               padding:"6px 10px", fontSize:14, lineHeight:1,
-            }} title={theme==="dark"?"Switch to light mode":"Switch to dark mode"}>
+            }}>
               {theme==="dark" ? "☀️" : "🌙"}
             </button>
           </div>
@@ -355,35 +435,169 @@ export default function App() {
 
         {storageMode==="memory"&&(
           <div style={{background:"rgba(251,146,60,0.08)",border:"1px solid rgba(251,146,60,0.3)",borderRadius:10,padding:"8px 12px",marginBottom:10}}>
-            <div style={{fontSize:10,color:"#fb923c",fontWeight:700}}>⚠️ Memory-only mode — data won't persist. Use EXPORT to backup.</div>
+            <div style={{fontSize:10,color:"#fb923c",fontWeight:700}}>⚠️ Memory-only mode — use EXPORT to backup.</div>
           </div>
         )}
 
-        {/* NAV — 4 tabs now */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:12}}>
+        {/* NAV — 5 tabs now with Matt-bot */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4,marginBottom:12}}>
           {[
             {id:"dashboard",icon:"📊",label:"HOME"},
-            {id:"accounts", icon:"🏦",label:"ACCOUNTS"},
+            {id:"mattbot", icon:"🤖",label:"MATT"},
             {id:"log",      icon:"➕",label:"LOG"},
-            {id:"history",  icon:"📋",label:"HISTORY"},
+            {id:"accounts", icon:"🏦",label:"ACCTS"},
+            {id:"history",  icon:"📋",label:"HIST"},
           ].map(({id,icon,label})=>(
             <button key={id} onClick={()=>setScreen(id)} className="btn" style={{
               background:screen===id?(theme==="dark"?"rgba(52,211,153,0.12)":"rgba(5,150,105,0.1)"):t.CARD,
               border:`1px solid ${screen===id?t.G:t.BORDER}`,
-              borderRadius:10,padding:"8px 4px",
+              borderRadius:10,padding:"7px 3px",
               color:screen===id?t.G:t.W,
-              fontSize:9, letterSpacing:"0.06em",
+              fontSize:9,letterSpacing:"0.06em",
             }}>
-              <div style={{fontSize:16,marginBottom:2}}>{icon}</div>{label}
+              <div style={{fontSize:14,marginBottom:1}}>{icon}</div>{label}
             </button>
           ))}
         </div>
 
-        {/* ══ DASHBOARD — focused on wealth + milestones ══ */}
+        {/* ══ MATT-BOT TAB ══════════════════════════════════════════════════ */}
+        {screen==="mattbot"&&(
+          <div className="slide">
+            {/* Matt-bot avatar */}
+            <div style={{textAlign:"center",marginBottom:12,padding:"20px 0"}}>
+              <img
+                src="/matt-idle.png"
+                alt="Matt-bot"
+                className={mbStatus==="thinking"?"mbThink":"mbBounce"}
+                style={{
+                  width: 180, height: "auto", maxHeight: 220,
+                  objectFit: "contain", display: "block", margin: "0 auto",
+                  filter: mbStatus==="thinking"?"hue-rotate(20deg) brightness(1.1)":"none",
+                  transition:"filter 0.3s",
+                }}
+                onError={(e)=>{e.target.style.display="none"}}
+              />
+              <div style={{fontSize:14,fontWeight:900,color:t.G,marginTop:8}}>🤖 MATT-BOT</div>
+              <div style={{fontSize:10,color:t.S,marginTop:2}}>
+                {mbStatus==="thinking" ? "🧠 thinking..." :
+                 mbStatus==="preview"  ? "📝 ready for your review!" :
+                 mbStatus==="error"    ? "😅 needs help" :
+                 "💬 ready to help! tell me what you spent."}
+              </div>
+            </div>
+
+            {/* Input */}
+            {mbStatus !== "preview" && (
+              <>
+                <div className="lbl">TELL MATT-BOT WHAT HAPPENED</div>
+                <textarea
+                  value={mbInput}
+                  onChange={e=>setMbInput(e.target.value)}
+                  placeholder="e.g. got gas at shell $42 on chase card"
+                  rows={3}
+                  style={{resize:"vertical",fontFamily:"inherit",marginBottom:8}}
+                />
+                <div style={{fontSize:9,color:t.S,marginBottom:10,fontStyle:"italic"}}>
+                  💡 Tip: tap the 🎤 mic on your keyboard to dictate by voice!
+                </div>
+
+                {mbError && (
+                  <div style={{background:`${t.R}1a`,border:`1px solid ${t.R}40`,borderRadius:9,padding:"10px 12px",marginBottom:10}}>
+                    <div className="lbl" style={{color:t.R,marginBottom:3}}>⚠️ MATT-BOT SAYS</div>
+                    <div style={{fontSize:11,color:t.W}}>{mbError}</div>
+                  </div>
+                )}
+
+                <button
+                  onClick={callMattBot}
+                  disabled={mbStatus==="thinking" || !mbInput.trim()}
+                  className="btn"
+                  style={{
+                    width:"100%", padding:"14px", borderRadius:12,
+                    background: mbStatus==="thinking" ? t.CARD : `linear-gradient(135deg,${t.G},${t.B})`,
+                    color: mbStatus==="thinking" ? t.S : t.btnText,
+                    fontSize:13, fontWeight:900, letterSpacing:"0.08em",
+                    opacity: !mbInput.trim() ? 0.5 : 1,
+                    cursor: !mbInput.trim() ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {mbStatus==="thinking" ? "🧠 MATT-BOT IS THINKING..." : "🤖 SEND TO MATT-BOT"}
+                </button>
+              </>
+            )}
+
+            {/* Preview */}
+            {mbStatus === "preview" && mbPreview && (
+              <div className="slide">
+                <div style={{background:`${t.G}14`,border:`1px solid ${t.G}40`,borderRadius:12,padding:"12px",marginBottom:10}}>
+                  <div className="lbl" style={{color:t.G}}>✅ MATT-BOT EXTRACTED {mbPreview.length} TRANSACTION{mbPreview.length>1?"S":""}</div>
+                </div>
+
+                {mbPreview.map((p, i) => {
+                  const fromAcc = getAccount(p.fromAccount);
+                  const toAcc = getAccount(p.toAccount);
+                  const color = p.type==="income"?t.G:p.type==="transfer"?t.B:t.R;
+                  return (
+                    <div key={i} style={{background:t.CARD,border:`1px solid ${color}40`,borderRadius:11,padding:"12px",marginBottom:8}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                        <div>
+                          <div className="lbl" style={{color}}>
+                            {p.type==="income"?"💰 INCOME":p.type==="transfer"?"⇄ TRANSFER":"💸 EXPENSE"}
+                          </div>
+                          <div style={{fontSize:20,fontWeight:900,color,marginTop:2}}>
+                            {p.type==="income"?"+":p.type==="transfer"?"⇄":"-"}${fmt(p.amount)}
+                          </div>
+                        </div>
+                        <div style={{textAlign:"right",fontSize:9,color:t.S}}>{p.date}</div>
+                      </div>
+
+                      {p.type !== "transfer" && (
+                        <div style={{fontSize:11,color:t.W,marginBottom:4}}>
+                          📂 <strong>{p.category}</strong>
+                        </div>
+                      )}
+
+                      {p.type === "expense" && (
+                        <div style={{fontSize:10,color:t.S}}>
+                          💳 Paid from: <strong style={{color:t.W}}>{fromAcc?.icon} {fromAcc?.label}</strong>
+                        </div>
+                      )}
+                      {p.type === "income" && (
+                        <div style={{fontSize:10,color:t.S}}>
+                          🏦 Deposit to: <strong style={{color:t.W}}>{toAcc?.icon} {toAcc?.label}</strong>
+                        </div>
+                      )}
+                      {p.type === "transfer" && (
+                        <div style={{fontSize:10,color:t.S}}>
+                          📤 From: <strong style={{color:t.W}}>{fromAcc?.label}</strong> → 📥 To: <strong style={{color:t.W}}>{toAcc?.label}</strong>
+                        </div>
+                      )}
+
+                      {p.note && (
+                        <div style={{fontSize:10,color:t.S,marginTop:4,fontStyle:"italic"}}>
+                          📝 {p.note}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
+                  <button onClick={cancelMattBot} className="btn" style={{padding:"12px",borderRadius:11,background:`${t.R}14`,border:`1px solid ${t.R}40`,color:t.R,fontSize:12,fontWeight:900}}>
+                    ✕ CANCEL
+                  </button>
+                  <button onClick={confirmMattBot} className="btn" style={{padding:"12px",borderRadius:11,background:`linear-gradient(135deg,${t.G},${t.B})`,color:t.btnText,fontSize:12,fontWeight:900}}>
+                    ✓ CONFIRM & LOG
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══ DASHBOARD ══ */}
         {screen==="dashboard"&&(
           <div className="slide">
-
-            {/* HERO: NET WORTH + MILESTONE */}
             <div style={{
               background: theme==="dark"
                 ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))"
@@ -418,7 +632,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* MILESTONE LADDER */}
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
               {MILESTONES.map(m=>{
                 const done=totalNW>=m.target;
@@ -442,7 +655,6 @@ export default function App() {
               })}
             </div>
 
-            {/* HYSA SUB-GOAL */}
             {(()=>{
               const hysaBal = +(assets.hysa||0);
               const hysaPct = Math.min((hysaBal/50000)*100, 100);
@@ -470,7 +682,6 @@ export default function App() {
               );
             })()}
 
-            {/* WEALTH BREAKDOWN */}
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
               <div style={{background:t.CARD,border:`1px solid ${t.B}40`,borderRadius:12,padding:"12px"}}>
                 <div className="lbl">💵 CASH</div>
@@ -486,7 +697,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* DEBT BREAKDOWN (only if there is debt) */}
             {totalDebts>0&&(
               <div style={{background:theme==="dark"?"rgba(248,113,113,0.07)":"rgba(220,38,38,0.05)",border:`1px solid ${t.R}33`,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
                 <div className="lbl" style={{color:t.R}}>🚨 DEBT BREAKDOWN</div>
@@ -499,7 +709,6 @@ export default function App() {
               </div>
             )}
 
-            {/* THIS MONTH */}
             <div className="lbl" style={{marginBottom:6}}>📆 {thisMonth}</div>
             <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12}}>
               <div style={{display:"flex",justifyContent:"space-between"}}>
@@ -516,14 +725,8 @@ export default function App() {
                   <div style={{fontSize:16,color:t.R,fontWeight:700}}>-${fmt(monthOut)}</div>
                 </div>
               </div>
-              {(monthIn+monthOut)>0&&(
-                <div style={{height:5,background:theme==="dark"?"rgba(255,255,255,0.07)":"rgba(15,23,42,0.07)",borderRadius:3,overflow:"hidden",marginTop:10}}>
-                  <div style={{height:"100%",width:`${Math.min(monthIn/(monthIn+monthOut)*100,100)}%`,background:`linear-gradient(90deg,${t.G},${t.B})`,borderRadius:3,transition:"width 0.6s"}}/>
-                </div>
-              )}
             </div>
 
-            {/* BACKUP/RESTORE */}
             <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"12px",marginTop:6}}>
               <div className="lbl" style={{marginBottom:8}}>🔐 BACKUP & RESTORE</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
