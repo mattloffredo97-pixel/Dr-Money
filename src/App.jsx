@@ -329,9 +329,8 @@ export default function App() {
       newLL = td;
     }
     patch({ transactions: newTx, assets: newA, debts: newD, streak: newStr, lastLog: newLL });
-    setForm({type:"expense", amount:"", category:"Food", description:"", note:"", date:todayStr(), fromAccount:"checking", toAccount:"checking"});
+    setForm(f => ({...f, amount:"", description:"", note:""}));
     showToast(`🤖 ${category} · ${getRoast(category)}`, "roast");
-    setScreen("dashboard");
   };
 
   // ─── INCOME / TRANSFER SUBMIT: no AI needed ────────────────────────────────
@@ -352,10 +351,9 @@ export default function App() {
       newLL = td;
     }
     patch({ transactions: newTx, assets: newA, debts: newD, streak: newStr, lastLog: newLL });
-    setForm({type:"expense", amount:"", category:"Food", description:"", note:"", date:todayStr(), fromAccount:"checking", toAccount:"checking"});
+    setForm(f => ({...f, amount:"", description:"", note:""}));
     if (form.type==="income") showToast(getPraise(),"praise");
     else showToast(`Transferred $${fmt(amt)} 💸`,"praise");
-    setScreen("dashboard");
   };
 
   const handleSubmit = () => {
@@ -552,14 +550,11 @@ export default function App() {
               <div className="lbl" style={{textAlign:"left",marginBottom:2}}>AMOUNT</div>
               <div style={{fontSize:34,fontWeight:900,color:form.type==="income"?t.G:form.type==="transfer"?t.B:t.R,lineHeight:1}}>
                 ${form.amount||"0"}
-                {form.amount && !form.amount.includes(".")?".00":""}
-                {form.amount.includes(".") && form.amount.split(".")[1].length===0?"00":""}
-                {form.amount.includes(".") && form.amount.split(".")[1].length===1?"0":""}
               </div>
             </div>
 
             {/* CALCULATOR PAD */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:10}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:12}}>
               {["7","8","9","4","5","6","1","2","3",".","0","⌫"].map(k=>{
                 const isAction = k==="⌫";
                 return(
@@ -574,7 +569,6 @@ export default function App() {
                 );
               })}
             </div>
-            <button onClick={()=>onKey("C")} className="btn" style={{width:"100%",background:theme==="dark"?"rgba(248,113,113,0.06)":"rgba(220,38,38,0.04)",border:`1px solid ${t.R}33`,borderRadius:9,padding:"8px",color:t.R,fontSize:11,fontWeight:700,marginBottom:12,letterSpacing:"0.1em"}}>CLEAR</button>
 
             {/* EXPENSE-ONLY: SMART CATEGORIZATION ROW */}
             {form.type==="expense"&&(<>
