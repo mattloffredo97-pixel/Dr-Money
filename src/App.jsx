@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 
 const MILESTONES = [
   { target:100000,  label:"First $100K",    icon:"🌱" },
@@ -40,13 +40,46 @@ const ROASTS = {
 };
 const PRAISES = ["YESSS! 💊","Compound interest dances. 📈","THAT'S what I'm talking about! 🔥","Beautiful. 🥹"];
 
+// ─── STARTER PRESETS (used until user has 10+ transactions) ──────────────────
+const STARTER_PRESETS = [
+  { emoji:"⛽", word:"gas",          category:"Gas" },
+  { emoji:"☕", word:"coffee",       category:"Food" },
+  { emoji:"🍔", word:"food",         category:"Food" },
+  { emoji:"🛒", word:"shopping",     category:"Shopping" },
+  { emoji:"📱", word:"subscription", category:"Subscriptions" },
+  { emoji:"🚗", word:"transport",    category:"Transport" },
+];
+
+// ─── EMOJI MAP for guessing emojis on dynamic presets ────────────────────────
+const EMOJI_HINTS = {
+  gas:"⛽", fuel:"⛽", shell:"⛽", exxon:"⛽",
+  coffee:"☕", starbucks:"☕", dunkin:"☕",
+  food:"🍔", lunch:"🍔", dinner:"🍴", breakfast:"🥞", restaurant:"🍴", takeout:"🥡", grub:"🍔", uber:"🚗", lyft:"🚗",
+  groceries:"🛒", grocery:"🛒", whole:"🛒", trader:"🛒", costco:"🛒", target:"🎯",
+  amazon:"📦", shopping:"🛍️", clothes:"👕", shoes:"👟",
+  netflix:"📺", spotify:"🎵", subscription:"📱", phone:"📱", verizon:"📱", att:"📱",
+  rent:"🏠", mortgage:"🏠", utilities:"💡", electric:"⚡", water:"💧", gas_bill:"🔥",
+  medical:"💊", doctor:"🩺", pharmacy:"💊", cvs:"💊",
+  entertainment:"🎬", movie:"🎬", concert:"🎤", bar:"🍺", drinks:"🍻",
+  transport:"🚗", car:"🚗", train:"🚆", flight:"✈️", parking:"🅿️", toll:"🛣️",
+};
+
 const todayStr = () => new Date().toISOString().split("T")[0];
 const fmt  = n => (+(n??0)).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtK = n => n>=1000000?`$${(n/1000000).toFixed(2)}M`:n>=1000?`$${(n/1000).toFixed(1)}k`:`$${fmt(n)}`;
 const getRoast  = cat => { const a=ROASTS[cat]||ROASTS.default; return a[Math.floor(Math.random()*a.length)]; };
 const getPraise = () => PRAISES[Math.floor(Math.random()*PRAISES.length)];
 
-const SKEY = "drMoneyV10";
+const getEmojiForWord = (word) => {
+  const lower = word.toLowerCase().trim();
+  if (EMOJI_HINTS[lower]) return EMOJI_HINTS[lower];
+  for (const key in EMOJI_HINTS) {
+    if (lower.includes(key) || key.includes(lower)) return EMOJI_HINTS[key];
+  }
+  return "📝";
+};
+
+const SKEY = "drMoneyV11";
 
 const EMPTY = {
   transactions: [],
@@ -97,14 +130,10 @@ export default function App() {
   const [editA, setEA]      = useState({});
   const [editD, setED]      = useState({});
   const [form, setForm]     = useState({
-    type:"expense", amount:"", category:"Food", note:"", date:todayStr(),
+    type:"expense", amount:"", category:"Food", description:"", note:"", date:todayStr(),
     fromAccount:"checking", toAccount:"checking"
   });
-  // Matt-bot state
-  const [mbInput, setMbInput] = useState("");
-  const [mbStatus, setMbStatus] = useState("idle"); // idle | thinking | preview | error
-  const [mbPreview, setMbPreview] = useState(null);
-  const [mbError, setMbError] = useState("");
+  const [isCategorizing, setCategorizing] = useState(false);
   const saveRef             = useRef(null);
   const isFirst             = useRef(true);
 
@@ -161,6 +190,32 @@ export default function App() {
   const monthIn   = monthTxns.filter(tx=>tx.type==="income").reduce((s,tx)=>s+tx.amount,0);
   const monthOut  = monthTxns.filter(tx=>tx.type==="expense").reduce((s,tx)=>s+tx.amount,0);
 
+  // ─── DYNAMIC PRESETS LOGIC ────────────────────────────────────────────────
+  const dynamicPresets = useMemo(() => {
+    const expenseTxns = transactions.filter(tx => tx.type === "expense");
+    if (expenseTxns.length < 10) return STARTER_PRESETS;
+
+    // Count occurrences of each description/category
+    const counts = {};
+    expenseTxns.forEach(tx => {
+      const key = (tx.description || tx.note || tx.category).toLowerCase().trim().split(" ")[0];
+      if (!key) return;
+      if (!counts[key]) counts[key] = { count:0, category:tx.category, lastAccount:tx.fromAccount };
+      counts[key].count++;
+      counts[key].lastAccount = tx.fromAccount;
+    });
+
+    return Object.entries(counts)
+      .sort((a,b) => b[1].count - a[1].count)
+      .slice(0, 6)
+      .map(([word, info]) => ({
+        emoji: getEmojiForWord(word),
+        word: word,
+        category: info.category,
+        defaultAccount: info.lastAccount,
+      }));
+  }, [transactions]);
+
   const onKey = (k) => {
     const curr = form.amount || "";
     if (k === "C") return setForm(f => ({...f, amount: ""}));
@@ -198,9 +253,91 @@ export default function App() {
     return { assets: newA, debts: newD };
   };
 
-  const handleSubmit = () => {
+  // ─── PRESET TAP: instant log, no AI call ────────────────────────────────────
+  const applyPreset = (preset) => {
+    setForm(f => ({
+      ...f,
+      description: preset.word,
+      category: preset.category,
+      fromAccount: preset.defaultAccount || f.fromAccount,
+    }));
+  };
+
+  // ─── EXPENSE SUBMIT: uses AI if text description, instant if preset/empty ───
+  const handleExpenseSubmit = async () => {
     const amt = parseFloat(form.amount);
-    if (!amt || amt <= 0) { showToast("Enter a valid amount. 🙄","error"); return; }
+    if (!amt || amt <= 0) { showToast("Enter an amount. 🙄","error"); return; }
+
+    // If no description, use category "Other"
+    if (!form.description.trim()) {
+      logExpense(amt, "Other", "");
+      return;
+    }
+
+    // Check if the description EXACTLY matches a preset word (instant, no AI)
+    const matchingPreset = dynamicPresets.find(p => p.word.toLowerCase() === form.description.toLowerCase().trim());
+    if (matchingPreset) {
+      logExpense(amt, matchingPreset.category, form.description.trim());
+      return;
+    }
+
+    // Otherwise, send to Matt-bot for categorization
+    setCategorizing(true);
+    try {
+      const response = await fetch('/api/mattbot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userText: `${form.description} (amount: $${amt}, paid from ${getAccount(form.fromAccount)?.label})`,
+          accounts: ALL_ACCOUNTS,
+          categories: CATEGORIES,
+        }),
+      });
+      if (!response.ok) throw new Error("Matt-bot is napping");
+      const result = await response.json();
+      const tx = result.transactions?.[0];
+      const category = tx?.category || "Other";
+      const note = tx?.note || form.description.trim();
+      logExpense(amt, category, note);
+    } catch (err) {
+      // On error, fall back to logging with the raw description
+      logExpense(amt, "Other", form.description.trim());
+      showToast("Matt-bot napping, logged as Other.","info");
+    }
+    setCategorizing(false);
+  };
+
+  const logExpense = (amt, category, note) => {
+    const tx = {
+      id: Date.now(),
+      type: "expense",
+      amount: amt,
+      category: category,
+      description: form.description.trim() || category.toLowerCase(),
+      note: note,
+      date: form.date,
+      fromAccount: form.fromAccount,
+      toAccount: "",
+    };
+    const newTx = [tx, ...transactions];
+    const { assets: newA, debts: newD } = applyToBalances(tx, assets, debts);
+    let newStr = streak, newLL = lastLog;
+    const td = todayStr();
+    if (lastLog !== td) {
+      const yd = new Date(); yd.setDate(yd.getDate()-1);
+      newStr = lastLog===yd.toISOString().split("T")[0] ? streak+1 : 1;
+      newLL = td;
+    }
+    patch({ transactions: newTx, assets: newA, debts: newD, streak: newStr, lastLog: newLL });
+    setForm({type:"expense", amount:"", category:"Food", description:"", note:"", date:todayStr(), fromAccount:"checking", toAccount:"checking"});
+    showToast(`🤖 ${category} · ${getRoast(category)}`, "roast");
+    setScreen("dashboard");
+  };
+
+  // ─── INCOME / TRANSFER SUBMIT: no AI needed ────────────────────────────────
+  const handleIncomeTransferSubmit = () => {
+    const amt = parseFloat(form.amount);
+    if (!amt || amt <= 0) { showToast("Enter an amount. 🙄","error"); return; }
     if (form.type === "transfer" && form.fromAccount === form.toAccount) {
       showToast("From and To must differ. 🙄","error"); return;
     }
@@ -215,83 +352,15 @@ export default function App() {
       newLL = td;
     }
     patch({ transactions: newTx, assets: newA, debts: newD, streak: newStr, lastLog: newLL });
-    setForm({type:"expense", amount:"", category:"Food", note:"", date:todayStr(), fromAccount:"checking", toAccount:"checking"});
-    if (form.type==="expense") showToast(getRoast(form.category),"roast");
-    else if (form.type==="income") showToast(getPraise(),"praise");
+    setForm({type:"expense", amount:"", category:"Food", description:"", note:"", date:todayStr(), fromAccount:"checking", toAccount:"checking"});
+    if (form.type==="income") showToast(getPraise(),"praise");
     else showToast(`Transferred $${fmt(amt)} 💸`,"praise");
     setScreen("dashboard");
   };
 
-  // ─── MATT-BOT API CALL ─────────────────────────────────────────────────────
-  const callMattBot = async () => {
-    if (!mbInput.trim()) { setMbError("Tell Matt-bot what happened first!"); return; }
-    setMbStatus("thinking");
-    setMbError("");
-    setMbPreview(null);
-    try {
-      const response = await fetch('/api/mattbot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userText: mbInput,
-          accounts: ALL_ACCOUNTS,
-          categories: CATEGORIES,
-        }),
-      });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || 'Matt-bot is napping');
-      }
-      const result = await response.json();
-      if (result.needsClarification) {
-        setMbError(result.clarificationMessage || "Matt-bot needs more info");
-        setMbStatus("error");
-      } else {
-        setMbPreview(result.transactions || []);
-        setMbStatus("preview");
-      }
-    } catch (err) {
-      setMbError(err.message);
-      setMbStatus("error");
-    }
-  };
-
-  const confirmMattBot = () => {
-    if (!mbPreview || mbPreview.length === 0) return;
-    let workingAssets = {...assets};
-    let workingDebts = {...debts};
-    const newTxns = [];
-    mbPreview.forEach(p => {
-      const tx = {
-        id: Date.now() + Math.random(),
-        type: p.type,
-        amount: p.amount,
-        category: p.category || "Other",
-        note: p.note || "Logged by Matt-bot",
-        date: p.date || todayStr(),
-        fromAccount: p.fromAccount || "checking",
-        toAccount: p.toAccount || "checking",
-      };
-      const result = applyToBalances(tx, workingAssets, workingDebts);
-      workingAssets = result.assets;
-      workingDebts = result.debts;
-      newTxns.push(tx);
-    });
-    patch({
-      transactions: [...newTxns, ...transactions],
-      assets: workingAssets,
-      debts: workingDebts,
-    });
-    setMbInput("");
-    setMbPreview(null);
-    setMbStatus("idle");
-    showToast(`Matt-bot logged ${newTxns.length} transaction${newTxns.length>1?"s":""}! 🤖`, "praise");
-  };
-
-  const cancelMattBot = () => {
-    setMbPreview(null);
-    setMbStatus("idle");
-    setMbError("");
+  const handleSubmit = () => {
+    if (form.type === "expense") handleExpenseSubmit();
+    else handleIncomeTransferSubmit();
   };
 
   const handleBalSave = () => {
@@ -396,8 +465,8 @@ export default function App() {
         .lbl{font-size:9px;color:${t.secondaryText};letter-spacing:0.14em;text-transform:uppercase;margin-bottom:4px;font-weight:700;}
         .mbBounce{animation:mbBounce 2s ease-in-out infinite;}
         @keyframes mbBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-        .mbThink{animation:mbThink 0.6s ease-in-out infinite alternate;}
-        @keyframes mbThink{from{transform:rotate(-2deg) scale(1)}to{transform:rotate(2deg) scale(1.02)}}
+        .spin{animation:spin 1s linear infinite;display:inline-block;}
+        @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
       `}</style>
 
       {toast&&(
@@ -439,12 +508,12 @@ export default function App() {
           </div>
         )}
 
-        {/* NAV — 5 tabs now with Matt-bot */}
+        {/* NAV — 5 tabs */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4,marginBottom:12}}>
           {[
             {id:"dashboard",icon:"📊",label:"HOME"},
-            {id:"mattbot", icon:"🤖",label:"MATT"},
             {id:"log",      icon:"➕",label:"LOG"},
+            {id:"mattbot", icon:"🤖",label:"MATT"},
             {id:"accounts", icon:"🏦",label:"ACCTS"},
             {id:"history",  icon:"📋",label:"HIST"},
           ].map(({id,icon,label})=>(
@@ -460,138 +529,166 @@ export default function App() {
           ))}
         </div>
 
-        {/* ══ MATT-BOT TAB ══════════════════════════════════════════════════ */}
-        {screen==="mattbot"&&(
+        {/* ══ LOG (HYBRID — NEW!) ═════════════════════════════════════════════ */}
+        {screen==="log"&&(
           <div className="slide">
-            {/* Matt-bot avatar */}
-            <div style={{textAlign:"center",marginBottom:12,padding:"20px 0"}}>
-              <img
-                src="/matt-idle.png"
-                alt="Matt-bot"
-                className={mbStatus==="thinking"?"mbThink":"mbBounce"}
-                style={{
-                  width: 180, height: "auto", maxHeight: 220,
-                  objectFit: "contain", display: "block", margin: "0 auto",
-                  filter: mbStatus==="thinking"?"hue-rotate(20deg) brightness(1.1)":"none",
-                  transition:"filter 0.3s",
-                }}
-                onError={(e)=>{e.target.style.display="none"}}
-              />
-              <div style={{fontSize:14,fontWeight:900,color:t.G,marginTop:8}}>🤖 MATT-BOT</div>
-              <div style={{fontSize:10,color:t.S,marginTop:2}}>
-                {mbStatus==="thinking" ? "🧠 thinking..." :
-                 mbStatus==="preview"  ? "📝 ready for your review!" :
-                 mbStatus==="error"    ? "😅 needs help" :
-                 "💬 ready to help! tell me what you spent."}
+            {/* TYPE SWITCHER */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:10}}>
+              {[{tt:"expense", label:"💸 OUT", color:t.R},{tt:"income", label:"💰 IN", color:t.G},{tt:"transfer",label:"⇄ MOVE", color:t.B}].map(({tt,label,color})=>(
+                <button key={tt} onClick={()=>setForm(f=>({...f,type:tt,category:tt==="expense"?"Food":tt==="income"?"Salary":f.category,description:""}))} className="btn" style={{
+                  background: form.type===tt ? `${color}22` : t.CARD,
+                  border:`1px solid ${form.type===tt ? color : t.BORDER}`,
+                  borderRadius:9, padding:"9px",
+                  color:form.type===tt ? color : t.W,
+                  fontSize:11, fontWeight:700,
+                }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* CALCULATOR DISPLAY */}
+            <div style={{background:theme==="dark"?"rgba(0,0,0,0.3)":"rgba(15,23,42,0.04)",border:`1px solid ${form.type==="income"?t.G:form.type==="transfer"?t.B:t.R}40`,borderRadius:12,padding:"14px",marginBottom:8,textAlign:"right"}}>
+              <div className="lbl" style={{textAlign:"left",marginBottom:2}}>AMOUNT</div>
+              <div style={{fontSize:34,fontWeight:900,color:form.type==="income"?t.G:form.type==="transfer"?t.B:t.R,lineHeight:1}}>
+                ${form.amount||"0"}
+                {form.amount && !form.amount.includes(".")?".00":""}
+                {form.amount.includes(".") && form.amount.split(".")[1].length===0?"00":""}
+                {form.amount.includes(".") && form.amount.split(".")[1].length===1?"0":""}
               </div>
             </div>
 
-            {/* Input */}
-            {mbStatus !== "preview" && (
-              <>
-                <div className="lbl">TELL MATT-BOT WHAT HAPPENED</div>
-                <textarea
-                  value={mbInput}
-                  onChange={e=>setMbInput(e.target.value)}
-                  placeholder="e.g. got gas at shell $42 on chase card"
-                  rows={3}
-                  style={{resize:"vertical",fontFamily:"inherit",marginBottom:8}}
-                />
-                <div style={{fontSize:9,color:t.S,marginBottom:10,fontStyle:"italic"}}>
-                  💡 Tip: tap the 🎤 mic on your keyboard to dictate by voice!
-                </div>
+            {/* CALCULATOR PAD */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:10}}>
+              {["7","8","9","4","5","6","1","2","3",".","0","⌫"].map(k=>{
+                const isAction = k==="⌫";
+                return(
+                  <button key={k} onClick={()=>onKey(k)} className="btn" style={{
+                    background: isAction
+                      ? (theme==="dark"?"rgba(248,113,113,0.1)":"rgba(220,38,38,0.06)")
+                      : t.cardSubtle,
+                    border:`1px solid ${isAction?`${t.R}40`:t.BORDER}`,
+                    borderRadius:10, padding:"14px 0",
+                    color: isAction?t.R:t.W, fontSize:20, fontWeight:700,
+                  }}>{k}</button>
+                );
+              })}
+            </div>
+            <button onClick={()=>onKey("C")} className="btn" style={{width:"100%",background:theme==="dark"?"rgba(248,113,113,0.06)":"rgba(220,38,38,0.04)",border:`1px solid ${t.R}33`,borderRadius:9,padding:"8px",color:t.R,fontSize:11,fontWeight:700,marginBottom:12,letterSpacing:"0.1em"}}>CLEAR</button>
 
-                {mbError && (
-                  <div style={{background:`${t.R}1a`,border:`1px solid ${t.R}40`,borderRadius:9,padding:"10px 12px",marginBottom:10}}>
-                    <div className="lbl" style={{color:t.R,marginBottom:3}}>⚠️ MATT-BOT SAYS</div>
-                    <div style={{fontSize:11,color:t.W}}>{mbError}</div>
-                  </div>
-                )}
+            {/* EXPENSE-ONLY: SMART CATEGORIZATION ROW */}
+            {form.type==="expense"&&(<>
+              <div className="lbl">💡 WHAT WAS THIS FOR?</div>
 
-                <button
-                  onClick={callMattBot}
-                  disabled={mbStatus==="thinking" || !mbInput.trim()}
-                  className="btn"
-                  style={{
-                    width:"100%", padding:"14px", borderRadius:12,
-                    background: mbStatus==="thinking" ? t.CARD : `linear-gradient(135deg,${t.G},${t.B})`,
-                    color: mbStatus==="thinking" ? t.S : t.btnText,
-                    fontSize:13, fontWeight:900, letterSpacing:"0.08em",
-                    opacity: !mbInput.trim() ? 0.5 : 1,
-                    cursor: !mbInput.trim() ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {mbStatus==="thinking" ? "🧠 MATT-BOT IS THINKING..." : "🤖 SEND TO MATT-BOT"}
-                </button>
-              </>
-            )}
-
-            {/* Preview */}
-            {mbStatus === "preview" && mbPreview && (
-              <div className="slide">
-                <div style={{background:`${t.G}14`,border:`1px solid ${t.G}40`,borderRadius:12,padding:"12px",marginBottom:10}}>
-                  <div className="lbl" style={{color:t.G}}>✅ MATT-BOT EXTRACTED {mbPreview.length} TRANSACTION{mbPreview.length>1?"S":""}</div>
-                </div>
-
-                {mbPreview.map((p, i) => {
-                  const fromAcc = getAccount(p.fromAccount);
-                  const toAcc = getAccount(p.toAccount);
-                  const color = p.type==="income"?t.G:p.type==="transfer"?t.B:t.R;
+              {/* DYNAMIC PRESETS */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:8}}>
+                {dynamicPresets.map((p, i) => {
+                  const isSelected = form.description.toLowerCase().trim() === p.word.toLowerCase();
                   return (
-                    <div key={i} style={{background:t.CARD,border:`1px solid ${color}40`,borderRadius:11,padding:"12px",marginBottom:8}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-                        <div>
-                          <div className="lbl" style={{color}}>
-                            {p.type==="income"?"💰 INCOME":p.type==="transfer"?"⇄ TRANSFER":"💸 EXPENSE"}
-                          </div>
-                          <div style={{fontSize:20,fontWeight:900,color,marginTop:2}}>
-                            {p.type==="income"?"+":p.type==="transfer"?"⇄":"-"}${fmt(p.amount)}
-                          </div>
-                        </div>
-                        <div style={{textAlign:"right",fontSize:9,color:t.S}}>{p.date}</div>
-                      </div>
-
-                      {p.type !== "transfer" && (
-                        <div style={{fontSize:11,color:t.W,marginBottom:4}}>
-                          📂 <strong>{p.category}</strong>
-                        </div>
-                      )}
-
-                      {p.type === "expense" && (
-                        <div style={{fontSize:10,color:t.S}}>
-                          💳 Paid from: <strong style={{color:t.W}}>{fromAcc?.icon} {fromAcc?.label}</strong>
-                        </div>
-                      )}
-                      {p.type === "income" && (
-                        <div style={{fontSize:10,color:t.S}}>
-                          🏦 Deposit to: <strong style={{color:t.W}}>{toAcc?.icon} {toAcc?.label}</strong>
-                        </div>
-                      )}
-                      {p.type === "transfer" && (
-                        <div style={{fontSize:10,color:t.S}}>
-                          📤 From: <strong style={{color:t.W}}>{fromAcc?.label}</strong> → 📥 To: <strong style={{color:t.W}}>{toAcc?.label}</strong>
-                        </div>
-                      )}
-
-                      {p.note && (
-                        <div style={{fontSize:10,color:t.S,marginTop:4,fontStyle:"italic"}}>
-                          📝 {p.note}
-                        </div>
-                      )}
-                    </div>
+                    <button key={i} onClick={()=>applyPreset(p)} className="btn" style={{
+                      background: isSelected ? `${t.G}22` : t.CARD,
+                      border:`1px solid ${isSelected ? t.G : t.BORDER}`,
+                      borderRadius:9, padding:"8px 4px",
+                      color: isSelected ? t.G : t.W, fontSize:10,
+                      display:"flex",flexDirection:"column",alignItems:"center",gap:2,
+                    }}>
+                      <span style={{fontSize:18}}>{p.emoji}</span>
+                      <span style={{fontSize:9,fontWeight:700}}>{p.word}</span>
+                    </button>
                   );
                 })}
+              </div>
 
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
-                  <button onClick={cancelMattBot} className="btn" style={{padding:"12px",borderRadius:11,background:`${t.R}14`,border:`1px solid ${t.R}40`,color:t.R,fontSize:12,fontWeight:900}}>
-                    ✕ CANCEL
-                  </button>
-                  <button onClick={confirmMattBot} className="btn" style={{padding:"12px",borderRadius:11,background:`linear-gradient(135deg,${t.G},${t.B})`,color:t.btnText,fontSize:12,fontWeight:900}}>
-                    ✓ CONFIRM & LOG
-                  </button>
-                </div>
+              {/* DESCRIPTION TEXT INPUT */}
+              <input
+                type="text"
+                placeholder="or type: gas, lunch, amazon, doctor..."
+                value={form.description}
+                onChange={e=>setForm(f=>({...f,description:e.target.value}))}
+                style={{marginBottom:10}}
+              />
+
+              {/* PAID FROM ACCOUNT */}
+              <div style={{marginBottom:10}}>
+                <AccountGrid selectedId={form.fromAccount} onSelect={id=>setForm(f=>({...f,fromAccount:id}))} filter="all" label="💳 PAID FROM"/>
+                {getAccount(form.fromAccount)?.type==="debt" && (<div style={{fontSize:10,color:"#fb923c",marginTop:4,fontStyle:"italic"}}>⚠️ This adds to your {getAccount(form.fromAccount)?.label} debt</div>)}
+              </div>
+            </>)}
+
+            {/* INCOME-ONLY: CATEGORY DROPDOWN + ACCOUNT */}
+            {form.type==="income"&&(<>
+              <div style={{marginBottom:8}}>
+                <div className="lbl">CATEGORY</div>
+                <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>
+                  {CATEGORIES.income.map(c=><option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div style={{marginBottom:10}}>
+                <AccountGrid selectedId={form.toAccount} onSelect={id=>setForm(f=>({...f,toAccount:id}))} filter="asset" label="🏦 DEPOSIT TO"/>
+              </div>
+            </>)}
+
+            {/* TRANSFER-ONLY: FROM/TO ACCOUNTS */}
+            {form.type==="transfer"&&(<>
+              <div style={{marginBottom:8}}><AccountGrid selectedId={form.fromAccount} onSelect={id=>setForm(f=>({...f,fromAccount:id}))} filter="all" label="📤 FROM"/></div>
+              <div style={{marginBottom:10}}>
+                <AccountGrid selectedId={form.toAccount} onSelect={id=>setForm(f=>({...f,toAccount:id}))} filter="all" label="📥 TO"/>
+                {getAccount(form.toAccount)?.type==="debt" && (<div style={{fontSize:10,color:t.G,marginTop:4,fontStyle:"italic"}}>💪 Paying down {getAccount(form.toAccount)?.label}</div>)}
+              </div>
+            </>)}
+
+            <div style={{marginBottom:12}}><div className="lbl">DATE</div><input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}/></div>
+
+            <button onClick={handleSubmit} disabled={isCategorizing} className="btn" style={{
+              width:"100%",padding:"14px",borderRadius:12,
+              background:isCategorizing?t.CARD:form.type==="income"?`linear-gradient(135deg,${t.G},${t.B})`:form.type==="transfer"?`linear-gradient(135deg,${t.B},${t.P})`:`linear-gradient(135deg,${t.R},#fb923c)`,
+              color:isCategorizing?t.S:t.btnText,fontSize:13,fontWeight:900,letterSpacing:"0.08em",
+              opacity:isCategorizing?0.7:1,
+            }}>
+              {isCategorizing ? <><span className="spin">🤖</span> MATT-BOT IS THINKING...</> :
+               form.type==="income"?"⚡ LOG INCOME":form.type==="transfer"?"⇄ EXECUTE TRANSFER":"💸 LOG EXPENSE"}
+            </button>
+
+            {form.type==="expense" && form.description && !dynamicPresets.find(p => p.word.toLowerCase() === form.description.toLowerCase().trim()) && (
+              <div style={{fontSize:10,color:t.S,marginTop:6,textAlign:"center",fontStyle:"italic"}}>
+                🤖 Matt-bot will categorize "{form.description}"
               </div>
             )}
+          </div>
+        )}
+
+        {/* ══ MATT-BOT TAB ═════════════════════════════════════════════════════ */}
+        {screen==="mattbot"&&(
+          <div className="slide">
+            <div style={{textAlign:"center",padding:"20px 0",marginBottom:12}}>
+              <img
+                src="/matt-idle.png"
+                alt="Matt-bot"
+                className="mbBounce"
+                style={{width:180,height:"auto",maxHeight:220,objectFit:"contain",display:"block",margin:"0 auto"}}
+                onError={(e)=>{e.target.style.display="none"}}
+              />
+              <div style={{fontSize:16,fontWeight:900,color:t.G,marginTop:10}}>🤖 MATT-BOT</div>
+              <div style={{fontSize:10,color:t.S,marginTop:2,maxWidth:280,margin:"4px auto 0"}}>
+                The Mathematician & Tutor — coming soon. I'll show you charts, projections, and proactive insights without you asking.
+              </div>
+            </div>
+
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"16px",textAlign:"center"}}>
+              <div style={{fontSize:32,marginBottom:8}}>🔮</div>
+              <div style={{fontSize:12,color:t.W,fontWeight:700,marginBottom:6}}>Coming in Phase 2B</div>
+              <div style={{fontSize:10,color:t.S,lineHeight:1.6}}>
+                📊 Auto-generated charts<br/>
+                💡 Proactive AI insights<br/>
+                🔮 FIRE projections<br/>
+                💬 Conversational queries<br/>
+                🎯 Smart alerts
+              </div>
+            </div>
+
+            <div style={{fontSize:10,color:t.S,marginTop:12,textAlign:"center",fontStyle:"italic"}}>
+              Meanwhile, Matt-bot is already categorizing your expenses in the LOG tab! 🎯
+            </div>
           </div>
         )}
 
@@ -740,91 +837,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ══ LOG ══ */}
-        {screen==="log"&&(
-          <div className="slide">
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:10}}>
-              {[{tt:"expense", label:"💸 OUT", color:t.R},{tt:"income", label:"💰 IN", color:t.G},{tt:"transfer",label:"⇄ MOVE", color:t.B}].map(({tt,label,color})=>(
-                <button key={tt} onClick={()=>setForm(f=>({...f,type:tt,category:tt==="expense"?"Food":tt==="income"?"Salary":f.category}))} className="btn" style={{
-                  background: form.type===tt ? `${color}22` : t.CARD,
-                  border:`1px solid ${form.type===tt ? color : t.BORDER}`,
-                  borderRadius:9, padding:"9px",
-                  color:form.type===tt ? color : t.W,
-                  fontSize:11, fontWeight:700,
-                }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <div style={{background:theme==="dark"?"rgba(0,0,0,0.3)":"rgba(15,23,42,0.04)",border:`1px solid ${form.type==="income"?t.G:form.type==="transfer"?t.B:t.R}40`,borderRadius:12,padding:"14px",marginBottom:8,textAlign:"right"}}>
-              <div className="lbl" style={{textAlign:"left",marginBottom:2}}>AMOUNT</div>
-              <div style={{fontSize:34,fontWeight:900,color:form.type==="income"?t.G:form.type==="transfer"?t.B:t.R,lineHeight:1}}>
-                ${form.amount||"0"}
-                {form.amount && !form.amount.includes(".")?".00":""}
-                {form.amount.includes(".") && form.amount.split(".")[1].length===0?"00":""}
-                {form.amount.includes(".") && form.amount.split(".")[1].length===1?"0":""}
-              </div>
-            </div>
-
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:10}}>
-              {["7","8","9","4","5","6","1","2","3",".","0","⌫"].map(k=>{
-                const isAction = k==="⌫";
-                return(
-                  <button key={k} onClick={()=>onKey(k)} className="btn" style={{
-                    background: isAction
-                      ? (theme==="dark"?"rgba(248,113,113,0.1)":"rgba(220,38,38,0.06)")
-                      : t.cardSubtle,
-                    border:`1px solid ${isAction?`${t.R}40`:t.BORDER}`,
-                    borderRadius:10, padding:"14px 0",
-                    color: isAction?t.R:t.W, fontSize:20, fontWeight:700,
-                  }}>{k}</button>
-                );
-              })}
-            </div>
-            <button onClick={()=>onKey("C")} className="btn" style={{width:"100%",background:theme==="dark"?"rgba(248,113,113,0.06)":"rgba(220,38,38,0.04)",border:`1px solid ${t.R}33`,borderRadius:9,padding:"8px",color:t.R,fontSize:11,fontWeight:700,marginBottom:12,letterSpacing:"0.1em"}}>CLEAR</button>
-
-            {form.type==="expense"&&(
-              <div style={{marginBottom:10}}>
-                <AccountGrid selectedId={form.fromAccount} onSelect={id=>setForm(f=>({...f,fromAccount:id}))} filter="all" label="💳 PAID FROM"/>
-                {getAccount(form.fromAccount)?.type==="debt" && (<div style={{fontSize:10,color:"#fb923c",marginTop:4,fontStyle:"italic"}}>⚠️ This adds to your {getAccount(form.fromAccount)?.label} debt</div>)}
-              </div>
-            )}
-            {form.type==="income"&&(
-              <div style={{marginBottom:10}}>
-                <AccountGrid selectedId={form.toAccount} onSelect={id=>setForm(f=>({...f,toAccount:id}))} filter="asset" label="🏦 DEPOSIT TO"/>
-              </div>
-            )}
-            {form.type==="transfer"&&(<>
-              <div style={{marginBottom:8}}><AccountGrid selectedId={form.fromAccount} onSelect={id=>setForm(f=>({...f,fromAccount:id}))} filter="all" label="📤 FROM"/></div>
-              <div style={{marginBottom:10}}>
-                <AccountGrid selectedId={form.toAccount} onSelect={id=>setForm(f=>({...f,toAccount:id}))} filter="all" label="📥 TO"/>
-                {form.type==="transfer" && getAccount(form.toAccount)?.type==="debt" && (<div style={{fontSize:10,color:t.G,marginTop:4,fontStyle:"italic"}}>💪 Paying down {getAccount(form.toAccount)?.label}</div>)}
-              </div>
-            </>)}
-
-            {form.type!=="transfer"&&(
-              <div style={{marginBottom:8}}>
-                <div className="lbl">CATEGORY</div>
-                <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>
-                  {CATEGORIES[form.type].map(c=><option key={c}>{c}</option>)}
-                </select>
-              </div>
-            )}
-
-            <div style={{marginBottom:8}}><div className="lbl">DATE</div><input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}/></div>
-            <div style={{marginBottom:12}}><div className="lbl">NOTE (optional)</div><input type="text" placeholder="What was this for?" value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))}/></div>
-
-            <button onClick={handleSubmit} className="btn" style={{
-              width:"100%",padding:"14px",borderRadius:12,
-              background:form.type==="income"?`linear-gradient(135deg,${t.G},${t.B})`:form.type==="transfer"?`linear-gradient(135deg,${t.B},${t.P})`:`linear-gradient(135deg,${t.R},#fb923c)`,
-              color:t.btnText,fontSize:13,fontWeight:900,letterSpacing:"0.08em",
-            }}>
-              {form.type==="income"?"⚡ LOG INCOME":form.type==="transfer"?"⇄ EXECUTE TRANSFER":"💸 LOG EXPENSE"}
-            </button>
-          </div>
-        )}
-
         {/* ══ ACCOUNTS ══ */}
         {screen==="accounts"&&(
           <div className="slide">
@@ -890,7 +902,7 @@ export default function App() {
               return(
               <div key={tx.id} style={{background:t.CARD,border:`1px solid ${color}26`,borderRadius:9,padding:"9px 11px",marginBottom:5,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{flex:1}}>
-                  <div style={{fontSize:10,color:t.W,fontWeight:700}}>{tx.type==="transfer" ? "⇄ Transfer" : tx.category}{tx.note?` · ${tx.note}`:""}</div>
+                  <div style={{fontSize:10,color:t.W,fontWeight:700}}>{tx.type==="transfer" ? "⇄ Transfer" : tx.category}{tx.description?` · ${tx.description}`:tx.note?` · ${tx.note}`:""}</div>
                   <div style={{fontSize:9,color:t.S,marginTop:1}}>{tx.date} · {tx.type==="transfer" ? `${fromAcc?.icon} → ${toAcc?.icon}` : tx.type==="income" ? `→ ${toAcc?.icon} ${toAcc?.label}` : `${fromAcc?.icon} ${fromAcc?.label}`}</div>
                 </div>
                 <div style={{display:"flex",gap:6,alignItems:"center"}}>
