@@ -36,6 +36,20 @@ const CATEGORY_COLORS = {
   Food: "#34d399", Rent: "#60a5fa", Entertainment: "#f472b6",
   Transport: "#fbbf24", Shopping: "#a78bfa", Subscriptions: "#38bdf8",
   Medical: "#ef4444", Utilities: "#fb923c", Gas: "#facc15", Other: "#94a3b8",
+  Pets: "#f97316", "Personal Care": "#ec4899", Travel: "#06b6d4",
+  Gifts: "#84cc16", Education: "#8b5cf6", Fitness: "#10b981",
+  Charity: "#fbbf24", "Auto Repair": "#71717a", Hobbies: "#c084fc",
+  Childcare: "#fb7185", "Home Improvement": "#a3e635",
+};
+
+// Generate consistent color for any category (including AI-invented ones)
+const FALLBACK_PALETTE = ["#60a5fa","#34d399","#fbbf24","#f472b6","#a78bfa","#fb923c","#38bdf8","#f87171","#4ade80","#facc15","#c084fc","#84cc16","#06b6d4","#ec4899","#10b981"];
+const colorForCategory = (name) => {
+  if (CATEGORY_COLORS[name]) return CATEGORY_COLORS[name];
+  // Hash the category name to a stable color
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash) + name.charCodeAt(i);
+  return FALLBACK_PALETTE[Math.abs(hash) % FALLBACK_PALETTE.length];
 };
 
 const ROASTS = {
@@ -140,7 +154,7 @@ function CategoryBarChart({ data, t, theme }) {
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {data.map((d, i) => {
         const pct = max > 0 ? (d.value / max) * 100 : 0;
-        const color = CATEGORY_COLORS[d.label] || t.B;
+        const color = colorForCategory(d.label);
         return (
           <div key={i}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
@@ -563,12 +577,18 @@ export default function App() {
     if (matchingPreset) { logExpense(amt, matchingPreset.category, form.description.trim()); return; }
     setCategorizing(true);
     try {
+      // Gather user's existing expense categories so Matt-bot prefers reusing them
+      const existingCats = [...new Set(transactions
+        .filter(tx => tx.type === "expense" && tx.category)
+        .map(tx => tx.category))];
+      
       const response = await fetch('/api/mattbot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userText: `${form.description} (amount: $${amt}, paid from ${getAccount(form.fromAccount)?.label})`,
           accounts: ALL_ACCOUNTS, categories: CATEGORIES,
+          existingCategories: existingCats,
         }),
       });
       if (!response.ok) throw new Error("Matt-bot napping");
@@ -1014,7 +1034,7 @@ export default function App() {
                 {ytdCategories.map((c, i) => (
                   <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:i<ytdCategories.length-1?`1px solid ${t.BORDER}`:"none"}}>
                     <span style={{fontSize:11,color:t.W,fontWeight:600}}>
-                      <span style={{color:CATEGORY_COLORS[c.label]||t.B,marginRight:6}}>●</span>{c.label}
+                      <span style={{color:colorForCategory(c.label),marginRight:6}}>●</span>{c.label}
                     </span>
                     <span style={{fontSize:11,color:t.W,fontWeight:700}}>${fmt0(c.value)}</span>
                   </div>
