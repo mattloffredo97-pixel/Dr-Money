@@ -32,6 +32,12 @@ const CATEGORIES = {
   expense: ["Food","Rent","Entertainment","Transport","Shopping","Subscriptions","Medical","Utilities","Gas","Other"],
 };
 
+const CATEGORY_COLORS = {
+  Food: "#34d399", Rent: "#60a5fa", Entertainment: "#f472b6",
+  Transport: "#fbbf24", Shopping: "#a78bfa", Subscriptions: "#38bdf8",
+  Medical: "#ef4444", Utilities: "#fb923c", Gas: "#facc15", Other: "#94a3b8",
+};
+
 const ROASTS = {
   Entertainment:["Really? Entertainment AGAIN? 😤","Every fun dollar is not compounding.","The market doesn't care about hobbies."],
   Shopping:     ["Oh look who went SHOPPING. Bezos thanks you.","Another purchase? Goal just got further.","This is why we can't have nice things."],
@@ -40,7 +46,6 @@ const ROASTS = {
 };
 const PRAISES = ["YESSS! 💊","Compound interest dances. 📈","THAT'S what I'm talking about! 🔥","Beautiful. 🥹"];
 
-// ─── STARTER PRESETS (used until user has 10+ transactions) ──────────────────
 const STARTER_PRESETS = [
   { emoji:"⛽", word:"gas",          category:"Gas" },
   { emoji:"☕", word:"coffee",       category:"Food" },
@@ -50,15 +55,14 @@ const STARTER_PRESETS = [
   { emoji:"🚗", word:"transport",    category:"Transport" },
 ];
 
-// ─── EMOJI MAP for guessing emojis on dynamic presets ────────────────────────
 const EMOJI_HINTS = {
   gas:"⛽", fuel:"⛽", shell:"⛽", exxon:"⛽",
   coffee:"☕", starbucks:"☕", dunkin:"☕",
-  food:"🍔", lunch:"🍔", dinner:"🍴", breakfast:"🥞", restaurant:"🍴", takeout:"🥡", grub:"🍔", uber:"🚗", lyft:"🚗",
+  food:"🍔", lunch:"🍔", dinner:"🍴", breakfast:"🥞", restaurant:"🍴", takeout:"🥡",
   groceries:"🛒", grocery:"🛒", whole:"🛒", trader:"🛒", costco:"🛒", target:"🎯",
   amazon:"📦", shopping:"🛍️", clothes:"👕", shoes:"👟",
-  netflix:"📺", spotify:"🎵", subscription:"📱", phone:"📱", verizon:"📱", att:"📱",
-  rent:"🏠", mortgage:"🏠", utilities:"💡", electric:"⚡", water:"💧", gas_bill:"🔥",
+  netflix:"📺", spotify:"🎵", subscription:"📱", phone:"📱",
+  rent:"🏠", mortgage:"🏠", utilities:"💡", electric:"⚡", water:"💧",
   medical:"💊", doctor:"🩺", pharmacy:"💊", cvs:"💊",
   entertainment:"🎬", movie:"🎬", concert:"🎤", bar:"🍺", drinks:"🍻",
   transport:"🚗", car:"🚗", train:"🚆", flight:"✈️", parking:"🅿️", toll:"🛣️",
@@ -66,6 +70,7 @@ const EMOJI_HINTS = {
 
 const todayStr = () => new Date().toISOString().split("T")[0];
 const fmt  = n => (+(n??0)).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt0 = n => (+(n??0)).toLocaleString("en-US",{maximumFractionDigits:0});
 const fmtK = n => n>=1000000?`$${(n/1000000).toFixed(2)}M`:n>=1000?`$${(n/1000).toFixed(1)}k`:`$${fmt(n)}`;
 const getRoast  = cat => { const a=ROASTS[cat]||ROASTS.default; return a[Math.floor(Math.random()*a.length)]; };
 const getPraise = () => PRAISES[Math.floor(Math.random()*PRAISES.length)];
@@ -79,7 +84,7 @@ const getEmojiForWord = (word) => {
   return "📝";
 };
 
-const SKEY = "drMoneyV11";
+const SKEY = "drMoneyV12";
 
 const EMPTY = {
   transactions: [],
@@ -88,6 +93,8 @@ const EMPTY = {
   balHistory: [],
   streak:0, lastLog:null,
   theme: "dark",
+  insightsCache: null,  // {data, timestamp}
+  chatHistory: [],      // user/assistant message pairs
 };
 
 const hasLS = (() => { try { localStorage.setItem("__t","1"); localStorage.removeItem("__t"); return true; } catch { return false; } })();
@@ -106,6 +113,7 @@ const THEMES = {
     btnText: "#090b12",
     secondaryText: "#94a3b8",
     cardSubtle: "rgba(255,255,255,0.06)",
+    chartGrid: "rgba(255,255,255,0.08)",
   },
   light: {
     W: "#0f172a", S: "#475569", G: "#059669", R: "#dc2626", Y: "#d97706", B: "#2563eb", P: "#7c3aed",
@@ -117,8 +125,215 @@ const THEMES = {
     btnText: "#ffffff",
     secondaryText: "#64748b",
     cardSubtle: "rgba(15,23,42,0.05)",
+    chartGrid: "rgba(15,23,42,0.06)",
   },
 };
+
+const CACHE_HOURS = 6;
+const CACHE_MS = CACHE_HOURS * 60 * 60 * 1000;
+
+// ─── HORIZONTAL BAR CHART (CATEGORY BREAKDOWN) ────────────────────────────────
+function CategoryBarChart({ data, t, theme }) {
+  if (!data || data.length === 0) return null;
+  const max = Math.max(...data.map(d => d.value));
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {data.map((d, i) => {
+        const pct = max > 0 ? (d.value / max) * 100 : 0;
+        const color = CATEGORY_COLORS[d.label] || t.B;
+        return (
+          <div key={i}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+              <span style={{fontSize:11,color:t.W,fontWeight:600}}>{d.label}</span>
+              <span style={{fontSize:11,color:color,fontWeight:700}}>${fmt0(d.value)}</span>
+            </div>
+            <div style={{height:7,background:t.chartGrid,borderRadius:4,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${color},${color}cc)`,borderRadius:4,transition:"width 0.8s ease-out",boxShadow:`0 0 8px ${color}66`}}/>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── LINE CHART (TREND OVER TIME) ─────────────────────────────────────────────
+function LineChart({ data, t, theme, height=120 }) {
+  if (!data || data.length < 2) return <div style={{padding:24,textAlign:"center",fontSize:11,color:t.S,fontStyle:"italic"}}>Need more data to show this chart 📊</div>;
+  
+  const width = 280;
+  const padding = { top: 10, right: 10, bottom: 24, left: 36 };
+  const chartW = width - padding.left - padding.right;
+  const chartH = height - padding.top - padding.bottom;
+  
+  const maxVal = Math.max(...data.flatMap(d => [d.income || 0, d.expense || 0]));
+  const minVal = 0;
+  
+  const xStep = chartW / Math.max(data.length - 1, 1);
+  
+  const incomePoints = data.map((d, i) => ({
+    x: padding.left + i * xStep,
+    y: padding.top + chartH - ((d.income - minVal) / (maxVal - minVal || 1)) * chartH,
+  }));
+  
+  const expensePoints = data.map((d, i) => ({
+    x: padding.left + i * xStep,
+    y: padding.top + chartH - ((d.expense - minVal) / (maxVal - minVal || 1)) * chartH,
+  }));
+  
+  const incomePath = incomePoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const expensePath = expensePoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{width:"100%",height:"auto",display:"block"}}>
+      <defs>
+        <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={t.G} stopOpacity="0.4"/>
+          <stop offset="100%" stopColor={t.G} stopOpacity="0"/>
+        </linearGradient>
+        <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={t.R} stopOpacity="0.4"/>
+          <stop offset="100%" stopColor={t.R} stopOpacity="0"/>
+        </linearGradient>
+      </defs>
+      
+      {/* Grid lines */}
+      {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
+        <line key={i}
+          x1={padding.left} y1={padding.top + chartH * p}
+          x2={width - padding.right} y2={padding.top + chartH * p}
+          stroke={t.chartGrid} strokeWidth="0.5"/>
+      ))}
+      
+      {/* Y-axis labels */}
+      {[0, 0.5, 1].map((p, i) => (
+        <text key={i}
+          x={padding.left - 4} y={padding.top + chartH * (1 - p) + 3}
+          fontSize="8" fill={t.S} textAnchor="end" fontFamily="monospace">
+          ${fmt0(maxVal * p)}
+        </text>
+      ))}
+      
+      {/* Income area fill */}
+      <path d={`${incomePath} L ${incomePoints[incomePoints.length-1].x} ${padding.top + chartH} L ${incomePoints[0].x} ${padding.top + chartH} Z`}
+        fill="url(#incomeGrad)"/>
+      
+      {/* Expense area fill */}
+      <path d={`${expensePath} L ${expensePoints[expensePoints.length-1].x} ${padding.top + chartH} L ${expensePoints[0].x} ${padding.top + chartH} Z`}
+        fill="url(#expenseGrad)"/>
+      
+      {/* Income line */}
+      <path d={incomePath} fill="none" stroke={t.G} strokeWidth="2" filter={`drop-shadow(0 0 4px ${t.G}88)`}/>
+      
+      {/* Expense line */}
+      <path d={expensePath} fill="none" stroke={t.R} strokeWidth="2" filter={`drop-shadow(0 0 4px ${t.R}88)`}/>
+      
+      {/* Income points */}
+      {incomePoints.map((p, i) => (
+        <circle key={`i-${i}`} cx={p.x} cy={p.y} r="2.5" fill={t.G} stroke={t.BG} strokeWidth="1"/>
+      ))}
+      
+      {/* Expense points */}
+      {expensePoints.map((p, i) => (
+        <circle key={`e-${i}`} cx={p.x} cy={p.y} r="2.5" fill={t.R} stroke={t.BG} strokeWidth="1"/>
+      ))}
+      
+      {/* X-axis labels */}
+      {data.map((d, i) => (
+        i % Math.ceil(data.length / 4) === 0 || i === data.length - 1 ? (
+          <text key={i}
+            x={padding.left + i * xStep} y={height - 6}
+            fontSize="8" fill={t.S} textAnchor="middle" fontFamily="monospace">
+            {d.month.slice(5)}
+          </text>
+        ) : null
+      ))}
+    </svg>
+  );
+}
+
+// ─── TRAJECTORY PROJECTION CHART ──────────────────────────────────────────────
+function ProjectionChart({ currentNW, targetNW, monthlySavings, t, theme, monthsToGoal }) {
+  const width = 280;
+  const height = 120;
+  const padding = { top: 10, right: 10, bottom: 24, left: 36 };
+  const chartW = width - padding.left - padding.right;
+  const chartH = height - padding.top - padding.bottom;
+  
+  if (monthlySavings <= 0) {
+    return <div style={{padding:24,textAlign:"center",fontSize:11,color:t.S,fontStyle:"italic"}}>Save more than you spend to see projection 📈</div>;
+  }
+  
+  // Build trajectory points: today + projected months
+  const totalMonths = Math.min(monthsToGoal + 3, 60);
+  const points = [];
+  for (let i = 0; i <= totalMonths; i++) {
+    const value = currentNW + (monthlySavings * i);
+    points.push({
+      x: padding.left + (i / totalMonths) * chartW,
+      y: padding.top + chartH - ((value / targetNW) * chartH),
+      value,
+      month: i,
+    });
+  }
+  
+  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${Math.max(p.y, padding.top)}`).join(' ');
+  
+  // Find the point where we cross targetNW
+  const targetY = padding.top + chartH - chartH;  // top of chart
+  
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{width:"100%",height:"auto",display:"block"}}>
+      <defs>
+        <linearGradient id="trajGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={t.Y} stopOpacity="0.5"/>
+          <stop offset="100%" stopColor={t.G} stopOpacity="0"/>
+        </linearGradient>
+      </defs>
+      
+      {/* Grid lines */}
+      {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
+        <line key={i}
+          x1={padding.left} y1={padding.top + chartH * p}
+          x2={width - padding.right} y2={padding.top + chartH * p}
+          stroke={t.chartGrid} strokeWidth="0.5"/>
+      ))}
+      
+      {/* Target line */}
+      <line
+        x1={padding.left} y1={targetY}
+        x2={width - padding.right} y2={targetY}
+        stroke={t.Y} strokeWidth="1" strokeDasharray="3,3" opacity="0.6"/>
+      <text x={width - padding.right - 4} y={targetY - 3} fontSize="8" fill={t.Y} textAnchor="end" fontFamily="monospace">
+        ${fmt0(targetNW)}
+      </text>
+      
+      {/* Y-axis labels */}
+      {[0, 1].map((p, i) => (
+        <text key={i}
+          x={padding.left - 4} y={padding.top + chartH * (1 - p) + 3}
+          fontSize="8" fill={t.S} textAnchor="end" fontFamily="monospace">
+          ${fmt0(targetNW * p)}
+        </text>
+      ))}
+      
+      {/* Trajectory area */}
+      <path d={`${path} L ${points[points.length-1].x} ${padding.top + chartH} L ${points[0].x} ${padding.top + chartH} Z`}
+        fill="url(#trajGrad)"/>
+      
+      {/* Trajectory line */}
+      <path d={path} fill="none" stroke={`url(#trajGrad)`} strokeWidth="2"/>
+      <path d={path} fill="none" stroke={t.G} strokeWidth="2" filter={`drop-shadow(0 0 6px ${t.G}aa)`}/>
+      
+      {/* Current point */}
+      <circle cx={points[0].x} cy={points[0].y} r="4" fill={t.G} stroke={t.BG} strokeWidth="2"/>
+      
+      {/* X-axis labels */}
+      <text x={padding.left} y={height - 6} fontSize="8" fill={t.S} textAnchor="start" fontFamily="monospace">Now</text>
+      <text x={width - padding.right} y={height - 6} fontSize="8" fill={t.S} textAnchor="end" fontFamily="monospace">{totalMonths}mo</text>
+    </svg>
+  );
+}
 
 export default function App() {
   const [data, setData]     = useState(EMPTY);
@@ -134,6 +349,13 @@ export default function App() {
     fromAccount:"checking", toAccount:"checking"
   });
   const [isCategorizing, setCategorizing] = useState(false);
+  
+  // Matt-bot state
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState("");
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  
   const saveRef             = useRef(null);
   const isFirst             = useRef(true);
 
@@ -149,6 +371,8 @@ export default function App() {
           transactions: parsed.transactions || [],
           balHistory:   parsed.balHistory   || [],
           theme: parsed.theme || "dark",
+          insightsCache: parsed.insightsCache || null,
+          chatHistory: parsed.chatHistory || [],
         });
       }
       setSM(hasLS ? "persistent" : "memory");
@@ -172,7 +396,7 @@ export default function App() {
   const patch = (partial) => setData(prev => ({ ...prev, ...partial }));
   const showToast = (msg, type="info") => { setToast({msg,type}); setTimeout(()=>setToast(null),4000); };
 
-  const { transactions, assets, debts, balHistory, streak, lastLog, theme="dark" } = data;
+  const { transactions, assets, debts, balHistory, streak, lastLog, theme="dark", insightsCache, chatHistory } = data;
   const t = THEMES[theme];
 
   const totalAssets = Object.values(assets).reduce((s,v)=>s+(+v||0),0);
@@ -190,12 +414,83 @@ export default function App() {
   const monthIn   = monthTxns.filter(tx=>tx.type==="income").reduce((s,tx)=>s+tx.amount,0);
   const monthOut  = monthTxns.filter(tx=>tx.type==="expense").reduce((s,tx)=>s+tx.amount,0);
 
-  // ─── DYNAMIC PRESETS LOGIC ────────────────────────────────────────────────
+  // ─── ANALYTICS COMPUTATIONS (Last 3 months by default, but we use 6 for chart) ──
+  const monthlyStats = useMemo(() => {
+    const months = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      const txns = transactions.filter(t => t.date?.startsWith(monthKey));
+      const income = txns.filter(t => t.type === "income").reduce((s,t) => s + t.amount, 0);
+      const expense = txns.filter(t => t.type === "expense").reduce((s,t) => s + t.amount, 0);
+      months.push({ month: monthKey, income, expense, net: income - expense });
+    }
+    return months;
+  }, [transactions]);
+
+  const last3MonthsStats = monthlyStats.slice(-3);
+  
+  // Category breakdown for last 3 months
+  const categoryBreakdown = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - 3);
+    const cutoffStr = cutoff.toISOString().split("T")[0];
+    
+    const totals = {};
+    transactions
+      .filter(t => t.type === "expense" && t.date >= cutoffStr)
+      .forEach(t => {
+        const cat = t.category || "Other";
+        totals[cat] = (totals[cat] || 0) + t.amount;
+      });
+    
+    return Object.entries(totals)
+      .map(([label, value]) => ({ label, value }))
+      .sort((a,b) => b.value - a.value);
+  }, [transactions]);
+
+  // YTD top categories
+  const ytdCategories = useMemo(() => {
+    const year = new Date().getFullYear().toString();
+    const totals = {};
+    transactions
+      .filter(t => t.type === "expense" && t.date?.startsWith(year))
+      .forEach(t => {
+        const cat = t.category || "Other";
+        totals[cat] = (totals[cat] || 0) + t.amount;
+      });
+    return Object.entries(totals)
+      .map(([label, value]) => ({ label, value }))
+      .sort((a,b) => b.value - a.value)
+      .slice(0, 5);
+  }, [transactions]);
+
+  // Average monthly savings rate (using 3-month average)
+  const avgMonthlySavings = useMemo(() => {
+    const last3 = monthlyStats.slice(-3);
+    if (last3.length === 0) return 0;
+    return last3.reduce((s, m) => s + m.net, 0) / last3.length;
+  }, [monthlyStats]);
+
+  // Projected months to next milestone
+  const monthsToGoal = useMemo(() => {
+    if (avgMonthlySavings <= 0) return Infinity;
+    return Math.ceil((activeMilestone.target - totalNW) / avgMonthlySavings);
+  }, [activeMilestone, totalNW, avgMonthlySavings]);
+
+  // Projected goal date
+  const projectedDate = useMemo(() => {
+    if (!isFinite(monthsToGoal)) return null;
+    const d = new Date();
+    d.setMonth(d.getMonth() + monthsToGoal);
+    return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  }, [monthsToGoal]);
+
+  // ─── DYNAMIC PRESETS ──────────────────────────────────────────────────────
   const dynamicPresets = useMemo(() => {
     const expenseTxns = transactions.filter(tx => tx.type === "expense");
     if (expenseTxns.length < 10) return STARTER_PRESETS;
-
-    // Count occurrences of each description/category
     const counts = {};
     expenseTxns.forEach(tx => {
       const key = (tx.description || tx.note || tx.category).toLowerCase().trim().split(" ")[0];
@@ -204,13 +499,12 @@ export default function App() {
       counts[key].count++;
       counts[key].lastAccount = tx.fromAccount;
     });
-
     return Object.entries(counts)
       .sort((a,b) => b[1].count - a[1].count)
       .slice(0, 6)
       .map(([word, info]) => ({
         emoji: getEmojiForWord(word),
-        word: word,
+        word,
         category: info.category,
         defaultAccount: info.lastAccount,
       }));
@@ -218,7 +512,6 @@ export default function App() {
 
   const onKey = (k) => {
     const curr = form.amount || "";
-    if (k === "C") return setForm(f => ({...f, amount: ""}));
     if (k === "⌫") return setForm(f => ({...f, amount: curr.slice(0,-1)}));
     if (k === ".") {
       if (curr.includes(".")) return;
@@ -253,7 +546,6 @@ export default function App() {
     return { assets: newA, debts: newD };
   };
 
-  // ─── PRESET TAP: instant log, no AI call ────────────────────────────────────
   const applyPreset = (preset) => {
     setForm(f => ({
       ...f,
@@ -263,25 +555,12 @@ export default function App() {
     }));
   };
 
-  // ─── EXPENSE SUBMIT: uses AI if text description, instant if preset/empty ───
   const handleExpenseSubmit = async () => {
     const amt = parseFloat(form.amount);
     if (!amt || amt <= 0) { showToast("Enter an amount. 🙄","error"); return; }
-
-    // If no description, use category "Other"
-    if (!form.description.trim()) {
-      logExpense(amt, "Other", "");
-      return;
-    }
-
-    // Check if the description EXACTLY matches a preset word (instant, no AI)
+    if (!form.description.trim()) { logExpense(amt, "Other", ""); return; }
     const matchingPreset = dynamicPresets.find(p => p.word.toLowerCase() === form.description.toLowerCase().trim());
-    if (matchingPreset) {
-      logExpense(amt, matchingPreset.category, form.description.trim());
-      return;
-    }
-
-    // Otherwise, send to Matt-bot for categorization
+    if (matchingPreset) { logExpense(amt, matchingPreset.category, form.description.trim()); return; }
     setCategorizing(true);
     try {
       const response = await fetch('/api/mattbot', {
@@ -289,18 +568,14 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userText: `${form.description} (amount: $${amt}, paid from ${getAccount(form.fromAccount)?.label})`,
-          accounts: ALL_ACCOUNTS,
-          categories: CATEGORIES,
+          accounts: ALL_ACCOUNTS, categories: CATEGORIES,
         }),
       });
-      if (!response.ok) throw new Error("Matt-bot is napping");
+      if (!response.ok) throw new Error("Matt-bot napping");
       const result = await response.json();
       const tx = result.transactions?.[0];
-      const category = tx?.category || "Other";
-      const note = tx?.note || form.description.trim();
-      logExpense(amt, category, note);
+      logExpense(amt, tx?.category || "Other", tx?.note || form.description.trim());
     } catch (err) {
-      // On error, fall back to logging with the raw description
       logExpense(amt, "Other", form.description.trim());
       showToast("Matt-bot napping, logged as Other.","info");
     }
@@ -309,15 +584,9 @@ export default function App() {
 
   const logExpense = (amt, category, note) => {
     const tx = {
-      id: Date.now(),
-      type: "expense",
-      amount: amt,
-      category: category,
+      id: Date.now(), type: "expense", amount: amt, category,
       description: form.description.trim() || category.toLowerCase(),
-      note: note,
-      date: form.date,
-      fromAccount: form.fromAccount,
-      toAccount: "",
+      note, date: form.date, fromAccount: form.fromAccount, toAccount: "",
     };
     const newTx = [tx, ...transactions];
     const { assets: newA, debts: newD } = applyToBalances(tx, assets, debts);
@@ -333,7 +602,6 @@ export default function App() {
     showToast(`🤖 ${category} · ${getRoast(category)}`, "roast");
   };
 
-  // ─── INCOME / TRANSFER SUBMIT: no AI needed ────────────────────────────────
   const handleIncomeTransferSubmit = () => {
     const amt = parseFloat(form.amount);
     if (!amt || amt <= 0) { showToast("Enter an amount. 🙄","error"); return; }
@@ -360,6 +628,94 @@ export default function App() {
     if (form.type === "expense") handleExpenseSubmit();
     else handleIncomeTransferSubmit();
   };
+
+  // ─── PROACTIVE INSIGHTS ───────────────────────────────────────────────────
+  const loadInsights = async (forceRefresh = false) => {
+    // Check cache
+    if (!forceRefresh && insightsCache?.timestamp) {
+      const age = Date.now() - insightsCache.timestamp;
+      if (age < CACHE_MS) {
+        return; // Cache still valid
+      }
+    }
+    
+    if (transactions.length < 5) {
+      setInsightsError("Need at least 5 transactions for insights. Log a few more! 📝");
+      return;
+    }
+    
+    setInsightsLoading(true);
+    setInsightsError("");
+    try {
+      const response = await fetch('/api/mattbot-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transactions: transactions.slice(0, 100),
+          netWorth: totalNW,
+          totalAssets, totalDebts,
+          monthlyStats,
+          activeMilestone,
+          hysaBalance: +(assets.hysa) || 0,
+        }),
+      });
+      if (!response.ok) throw new Error("Insights service unavailable");
+      const result = await response.json();
+      patch({ insightsCache: { data: result, timestamp: Date.now() } });
+    } catch (err) {
+      setInsightsError(err.message);
+    }
+    setInsightsLoading(false);
+  };
+
+  const sendChatMessage = async () => {
+    const msg = chatInput.trim();
+    if (!msg || chatLoading) return;
+    
+    const newHistory = [...chatHistory, { role: "user", content: msg }];
+    patch({ chatHistory: newHistory });
+    setChatInput("");
+    setChatLoading(true);
+    
+    try {
+      const response = await fetch('/api/mattbot-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transactions: transactions.slice(0, 100),
+          netWorth: totalNW,
+          totalAssets, totalDebts,
+          monthlyStats,
+          activeMilestone,
+          hysaBalance: +(assets.hysa) || 0,
+          userQuestion: msg,
+        }),
+      });
+      if (!response.ok) throw new Error("Matt-bot is napping");
+      const result = await response.json();
+      patch({ 
+        chatHistory: [...newHistory, { 
+          role: "assistant", 
+          content: result.message || "Hmm, I couldn't analyze that. Try again?",
+          highlights: result.highlights || [],
+        }],
+      });
+    } catch (err) {
+      patch({ chatHistory: [...newHistory, { role: "assistant", content: "😅 I'm having trouble right now. Try again in a moment." }] });
+    }
+    setChatLoading(false);
+  };
+
+  // Auto-load insights when entering MATT tab
+  useEffect(() => {
+    if (screen === "mattbot" && loaded && !insightsLoading) {
+      const age = insightsCache?.timestamp ? Date.now() - insightsCache.timestamp : Infinity;
+      if (age >= CACHE_MS && transactions.length >= 5) {
+        loadInsights();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, loaded]);
 
   const handleBalSave = () => {
     const newA = { ...assets };
@@ -407,6 +763,8 @@ export default function App() {
 
   const toggleTheme = () => patch({ theme: theme === "dark" ? "light" : "dark" });
 
+  const clearChat = () => patch({ chatHistory: [] });
+
   const statusLabel = saveStatus==="saving" ? "💾" : saveStatus==="saved" ? "✅" : saveStatus==="memonly" ? "⚠️" : "";
   const statusColor = saveStatus==="saving" ? t.Y : saveStatus==="saved" ? t.G : saveStatus==="memonly" ? "#fb923c" : t.S;
 
@@ -445,6 +803,9 @@ export default function App() {
     );
   };
 
+  const insights = insightsCache?.data?.insights || [];
+  const insightAge = insightsCache?.timestamp ? Math.floor((Date.now() - insightsCache.timestamp) / 60000) : null;
+
   return (
     <div style={{minHeight:"100vh",background:t.BG,color:t.W,fontFamily:"'Courier New',monospace",paddingBottom:60,transition:"background 0.3s, color 0.3s"}}>
       <style>{`
@@ -462,9 +823,13 @@ export default function App() {
         @keyframes su{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
         .lbl{font-size:9px;color:${t.secondaryText};letter-spacing:0.14em;text-transform:uppercase;margin-bottom:4px;font-weight:700;}
         .mbBounce{animation:mbBounce 2s ease-in-out infinite;}
-        @keyframes mbBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+        @keyframes mbBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
         .spin{animation:spin 1s linear infinite;display:inline-block;}
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+        .pulse{animation:pulse 1.5s ease-in-out infinite;}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+        .insightCard{transition:transform 0.2s ease;}
+        .insightCard:hover{transform:translateY(-1px);}
       `}</style>
 
       {toast&&(
@@ -488,10 +853,7 @@ export default function App() {
               <div className="lbl">STREAK</div>
               <div style={{fontSize:11,color:"#fb923c",fontWeight:700}}>{streak>0?`🔥${streak}`:"💤0"}</div>
             </div>
-            <button onClick={toggleTheme} className="btn" style={{
-              background: t.CARD, border:`1px solid ${t.BORDER}`, borderRadius:18,
-              padding:"6px 10px", fontSize:14, lineHeight:1,
-            }}>
+            <button onClick={toggleTheme} className="btn" style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:18,padding:"6px 10px",fontSize:14,lineHeight:1}}>
               {theme==="dark" ? "☀️" : "🌙"}
             </button>
           </div>
@@ -506,7 +868,7 @@ export default function App() {
           </div>
         )}
 
-        {/* NAV — 5 tabs */}
+        {/* NAV */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4,marginBottom:12}}>
           {[
             {id:"dashboard",icon:"📊",label:"HOME"},
@@ -527,10 +889,234 @@ export default function App() {
           ))}
         </div>
 
-        {/* ══ LOG (HYBRID — NEW!) ═════════════════════════════════════════════ */}
+        {/* ══ MATT-BOT TAB — THE PROACTIVE DASHBOARD ═════════════════════════ */}
+        {screen==="mattbot"&&(
+          <div className="slide">
+            {/* Avatar header */}
+            <div style={{textAlign:"center",padding:"10px 0 16px"}}>
+              <img
+                src="/matt-idle.png"
+                alt="Matt-bot"
+                className="mbBounce"
+                style={{width:140,height:"auto",maxHeight:170,objectFit:"contain",display:"block",margin:"0 auto"}}
+                onError={(e)=>{e.target.style.display="none"}}
+              />
+              <div style={{fontSize:14,fontWeight:900,color:t.G,marginTop:6}}>🤖 MATT-BOT</div>
+              <div style={{fontSize:10,color:t.S,marginTop:2}}>
+                {insightsLoading ? "🧠 analyzing your finances..." : "your mathematician & tutor"}
+              </div>
+            </div>
+
+            {/* PROACTIVE INSIGHTS */}
+            {insights.length > 0 && (
+              <div style={{marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <div className="lbl">💡 MATT-BOT NOTICED</div>
+                  <button onClick={()=>loadInsights(true)} disabled={insightsLoading} className="btn" style={{
+                    background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:14,
+                    padding:"3px 8px",color:t.S,fontSize:9,fontWeight:700,
+                  }}>
+                    {insightsLoading?<span className="spin">🔄</span>:"🔄"} REFRESH
+                  </button>
+                </div>
+                {insights.map((insight, i) => {
+                  const accent = insight.type === "alert" ? t.R :
+                                insight.type === "praise" ? t.G :
+                                insight.type === "projection" ? t.B : t.Y;
+                  return (
+                    <div key={i} className="insightCard slide" style={{
+                      background: `linear-gradient(135deg, ${accent}1a, ${accent}08)`,
+                      border: `1px solid ${accent}40`,
+                      borderRadius: 12, padding: "12px 14px", marginBottom: 8,
+                      animationDelay: `${i * 0.1}s`,
+                    }}>
+                      <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                        <div style={{fontSize:24,lineHeight:1}}>{insight.icon}</div>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:12,color:t.W,fontWeight:700,marginBottom:3}}>{insight.title}</div>
+                          <div style={{fontSize:11,color:t.S,lineHeight:1.5}}>{insight.body}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {insightAge !== null && (
+                  <div style={{fontSize:9,color:t.S,textAlign:"center",fontStyle:"italic",marginTop:2}}>
+                    Updated {insightAge < 1 ? "just now" : insightAge < 60 ? `${insightAge}m ago` : `${Math.floor(insightAge/60)}h ago`}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {insightsLoading && insights.length === 0 && (
+              <div style={{textAlign:"center",padding:30,background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,marginBottom:14}}>
+                <div className="spin" style={{fontSize:32,marginBottom:8}}>🧠</div>
+                <div style={{fontSize:11,color:t.S}}>Matt-bot is thinking hard...</div>
+              </div>
+            )}
+
+            {insightsError && (
+              <div style={{background:`${t.R}1a`,border:`1px solid ${t.R}40`,borderRadius:10,padding:"10px 12px",marginBottom:14}}>
+                <div style={{fontSize:11,color:t.W}}>{insightsError}</div>
+              </div>
+            )}
+
+            {/* PROJECTION */}
+            <div style={{background:`linear-gradient(135deg, ${t.Y}14, ${t.G}08)`,border:`1px solid ${t.Y}40`,borderRadius:14,padding:"14px",marginBottom:12}}>
+              <div className="lbl" style={{color:t.Y}}>🔮 PROJECTION</div>
+              {isFinite(monthsToGoal) ? (
+                <>
+                  <div style={{fontSize:11,color:t.S,marginBottom:4}}>At your current pace, you'll hit</div>
+                  <div style={{fontSize:14,color:t.W,fontWeight:700,marginBottom:2}}>{activeMilestone.icon} {activeMilestone.label}</div>
+                  <div style={{fontSize:18,color:t.Y,fontWeight:900}}>{projectedDate || `~${monthsToGoal} months`}</div>
+                  <div style={{fontSize:10,color:t.S,marginTop:4}}>Saving avg ${fmt0(avgMonthlySavings)}/mo · {monthsToGoal} months from now</div>
+                  <div style={{marginTop:10}}>
+                    <ProjectionChart
+                      currentNW={totalNW}
+                      targetNW={activeMilestone.target}
+                      monthlySavings={avgMonthlySavings}
+                      monthsToGoal={monthsToGoal}
+                      t={t} theme={theme}
+                    />
+                  </div>
+                </>
+              ) : (
+                <div style={{fontSize:11,color:t.S,marginTop:4}}>Save more than you spend each month to see when you'll hit your goal! 📈</div>
+              )}
+            </div>
+
+            {/* INCOME VS EXPENSES OVER TIME */}
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div className="lbl">📈 INCOME VS EXPENSES</div>
+                <div style={{display:"flex",gap:10,fontSize:9}}>
+                  <span style={{color:t.G}}>● income</span>
+                  <span style={{color:t.R}}>● expense</span>
+                </div>
+              </div>
+              <LineChart data={monthlyStats} t={t} theme={theme}/>
+            </div>
+
+            {/* CATEGORY BREAKDOWN (LAST 3 MONTHS) */}
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12}}>
+              <div className="lbl" style={{marginBottom:10}}>📊 SPENDING BY CATEGORY (LAST 3 MONTHS)</div>
+              {categoryBreakdown.length > 0 ? (
+                <CategoryBarChart data={categoryBreakdown} t={t} theme={theme}/>
+              ) : (
+                <div style={{fontSize:11,color:t.S,fontStyle:"italic",textAlign:"center",padding:14}}>No expense data yet 📝</div>
+              )}
+            </div>
+
+            {/* TOP CATEGORIES YTD */}
+            {ytdCategories.length > 0 && (
+              <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12}}>
+                <div className="lbl" style={{marginBottom:8}}>🏆 TOP 5 CATEGORIES (YTD)</div>
+                {ytdCategories.map((c, i) => (
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:i<ytdCategories.length-1?`1px solid ${t.BORDER}`:"none"}}>
+                    <span style={{fontSize:11,color:t.W,fontWeight:600}}>
+                      <span style={{color:CATEGORY_COLORS[c.label]||t.B,marginRight:6}}>●</span>{c.label}
+                    </span>
+                    <span style={{fontSize:11,color:t.W,fontWeight:700}}>${fmt0(c.value)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* CONVERSATIONAL CHAT */}
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div className="lbl">💬 ASK MATT-BOT</div>
+                {chatHistory.length > 0 && (
+                  <button onClick={clearChat} className="btn" style={{background:"transparent",border:"none",color:t.S,fontSize:9,padding:0}}>clear chat</button>
+                )}
+              </div>
+
+              {/* Chat history */}
+              {chatHistory.length > 0 && (
+                <div style={{maxHeight:300,overflowY:"auto",marginBottom:8,paddingRight:4}}>
+                  {chatHistory.map((m, i) => (
+                    <div key={i} style={{
+                      background: m.role === "user" ? `${t.B}22` : `${t.G}14`,
+                      border: `1px solid ${m.role === "user" ? t.B : t.G}40`,
+                      borderRadius: 9, padding: "8px 11px", marginBottom: 6,
+                      maxWidth: "92%",
+                      marginLeft: m.role === "user" ? "auto" : 0,
+                      marginRight: m.role === "user" ? 0 : "auto",
+                    }}>
+                      <div style={{fontSize:8,color:t.S,marginBottom:3,fontWeight:700}}>
+                        {m.role === "user" ? "YOU" : "🤖 MATT-BOT"}
+                      </div>
+                      <div style={{fontSize:11,color:t.W,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{m.content}</div>
+                      {m.highlights && m.highlights.length > 0 && (
+                        <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>
+                          {m.highlights.map((h, j) => (
+                            <div key={j} style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:6,padding:"3px 7px",fontSize:9}}>
+                              <span style={{color:t.S}}>{h.label}: </span>
+                              <span style={{color:t.G,fontWeight:700}}>{h.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {chatLoading && (
+                    <div style={{background:`${t.G}14`,border:`1px solid ${t.G}40`,borderRadius:9,padding:"8px 11px",marginBottom:6,maxWidth:"92%"}}>
+                      <div style={{fontSize:8,color:t.S,marginBottom:3,fontWeight:700}}>🤖 MATT-BOT</div>
+                      <div style={{fontSize:11,color:t.S}}><span className="spin">🧠</span> thinking...</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Sample questions if empty */}
+              {chatHistory.length === 0 && (
+                <div style={{marginBottom:8}}>
+                  <div style={{fontSize:10,color:t.S,marginBottom:6}}>💡 Try asking:</div>
+                  {[
+                    "How much did I spend on food this month?",
+                    "When will I hit $100K?",
+                    "What's my biggest expense category?",
+                    "Where can I cut to save more?",
+                  ].map((q, i) => (
+                    <button key={i} onClick={()=>setChatInput(q)} className="btn" style={{
+                      width:"100%",textAlign:"left",
+                      background:t.cardSubtle,border:`1px solid ${t.BORDER}`,
+                      borderRadius:7,padding:"7px 10px",marginBottom:4,
+                      color:t.S,fontSize:10,fontFamily:"inherit",
+                    }}>
+                      → {q}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Chat input */}
+              <div style={{display:"flex",gap:6}}>
+                <input
+                  type="text"
+                  placeholder="ask matt-bot anything..."
+                  value={chatInput}
+                  onChange={e=>setChatInput(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter") sendChatMessage()}}
+                  disabled={chatLoading}
+                  style={{flex:1}}
+                />
+                <button onClick={sendChatMessage} disabled={chatLoading || !chatInput.trim()} className="btn" style={{
+                  background: !chatInput.trim() ? t.CARD : `linear-gradient(135deg,${t.G},${t.B})`,
+                  border:"none",borderRadius:8,padding:"0 14px",
+                  color: !chatInput.trim() ? t.S : t.btnText,
+                  fontSize:13, fontWeight:900, opacity: !chatInput.trim() ? 0.5 : 1,
+                }}>
+                  {chatLoading?<span className="spin">🤖</span>:"→"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ LOG ══ */}
         {screen==="log"&&(
           <div className="slide">
-            {/* TYPE SWITCHER */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:10}}>
               {[{tt:"expense", label:"💸 OUT", color:t.R},{tt:"income", label:"💰 IN", color:t.G},{tt:"transfer",label:"⇄ MOVE", color:t.B}].map(({tt,label,color})=>(
                 <button key={tt} onClick={()=>setForm(f=>({...f,type:tt,category:tt==="expense"?"Food":tt==="income"?"Salary":f.category,description:""}))} className="btn" style={{
@@ -539,13 +1125,10 @@ export default function App() {
                   borderRadius:9, padding:"9px",
                   color:form.type===tt ? color : t.W,
                   fontSize:11, fontWeight:700,
-                }}>
-                  {label}
-                </button>
+                }}>{label}</button>
               ))}
             </div>
 
-            {/* CALCULATOR DISPLAY */}
             <div style={{background:theme==="dark"?"rgba(0,0,0,0.3)":"rgba(15,23,42,0.04)",border:`1px solid ${form.type==="income"?t.G:form.type==="transfer"?t.B:t.R}40`,borderRadius:12,padding:"14px",marginBottom:8,textAlign:"right"}}>
               <div className="lbl" style={{textAlign:"left",marginBottom:2}}>AMOUNT</div>
               <div style={{fontSize:34,fontWeight:900,color:form.type==="income"?t.G:form.type==="transfer"?t.B:t.R,lineHeight:1}}>
@@ -553,7 +1136,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* CALCULATOR PAD */}
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:12}}>
               {["7","8","9","4","5","6","1","2","3",".","0","⌫"].map(k=>{
                 const isAction = k==="⌫";
@@ -570,11 +1152,8 @@ export default function App() {
               })}
             </div>
 
-            {/* EXPENSE-ONLY: SMART CATEGORIZATION ROW */}
             {form.type==="expense"&&(<>
               <div className="lbl">💡 WHAT WAS THIS FOR?</div>
-
-              {/* DYNAMIC PRESETS */}
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:8}}>
                 {dynamicPresets.map((p, i) => {
                   const isSelected = form.description.toLowerCase().trim() === p.word.toLowerCase();
@@ -592,8 +1171,6 @@ export default function App() {
                   );
                 })}
               </div>
-
-              {/* DESCRIPTION TEXT INPUT */}
               <input
                 type="text"
                 placeholder="or type: gas, lunch, amazon, doctor..."
@@ -601,15 +1178,12 @@ export default function App() {
                 onChange={e=>setForm(f=>({...f,description:e.target.value}))}
                 style={{marginBottom:10}}
               />
-
-              {/* PAID FROM ACCOUNT */}
               <div style={{marginBottom:10}}>
                 <AccountGrid selectedId={form.fromAccount} onSelect={id=>setForm(f=>({...f,fromAccount:id}))} filter="all" label="💳 PAID FROM"/>
                 {getAccount(form.fromAccount)?.type==="debt" && (<div style={{fontSize:10,color:"#fb923c",marginTop:4,fontStyle:"italic"}}>⚠️ This adds to your {getAccount(form.fromAccount)?.label} debt</div>)}
               </div>
             </>)}
 
-            {/* INCOME-ONLY: CATEGORY DROPDOWN + ACCOUNT */}
             {form.type==="income"&&(<>
               <div style={{marginBottom:8}}>
                 <div className="lbl">CATEGORY</div>
@@ -622,7 +1196,6 @@ export default function App() {
               </div>
             </>)}
 
-            {/* TRANSFER-ONLY: FROM/TO ACCOUNTS */}
             {form.type==="transfer"&&(<>
               <div style={{marginBottom:8}}><AccountGrid selectedId={form.fromAccount} onSelect={id=>setForm(f=>({...f,fromAccount:id}))} filter="all" label="📤 FROM"/></div>
               <div style={{marginBottom:10}}>
@@ -651,41 +1224,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ══ MATT-BOT TAB ═════════════════════════════════════════════════════ */}
-        {screen==="mattbot"&&(
-          <div className="slide">
-            <div style={{textAlign:"center",padding:"20px 0",marginBottom:12}}>
-              <img
-                src="/matt-idle.png"
-                alt="Matt-bot"
-                className="mbBounce"
-                style={{width:180,height:"auto",maxHeight:220,objectFit:"contain",display:"block",margin:"0 auto"}}
-                onError={(e)=>{e.target.style.display="none"}}
-              />
-              <div style={{fontSize:16,fontWeight:900,color:t.G,marginTop:10}}>🤖 MATT-BOT</div>
-              <div style={{fontSize:10,color:t.S,marginTop:2,maxWidth:280,margin:"4px auto 0"}}>
-                The Mathematician & Tutor — coming soon. I'll show you charts, projections, and proactive insights without you asking.
-              </div>
-            </div>
-
-            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"16px",textAlign:"center"}}>
-              <div style={{fontSize:32,marginBottom:8}}>🔮</div>
-              <div style={{fontSize:12,color:t.W,fontWeight:700,marginBottom:6}}>Coming in Phase 2B</div>
-              <div style={{fontSize:10,color:t.S,lineHeight:1.6}}>
-                📊 Auto-generated charts<br/>
-                💡 Proactive AI insights<br/>
-                🔮 FIRE projections<br/>
-                💬 Conversational queries<br/>
-                🎯 Smart alerts
-              </div>
-            </div>
-
-            <div style={{fontSize:10,color:t.S,marginTop:12,textAlign:"center",fontStyle:"italic"}}>
-              Meanwhile, Matt-bot is already categorizing your expenses in the LOG tab! 🎯
-            </div>
-          </div>
-        )}
-
         {/* ══ DASHBOARD ══ */}
         {screen==="dashboard"&&(
           <div className="slide">
@@ -702,7 +1240,6 @@ export default function App() {
                 <span style={{color:t.G}}>+ ${fmt(totalAssets)} assets</span>
                 <span style={{color:t.R}}>− ${fmt(totalDebts)} debt</span>
               </div>
-
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:8}}>
                 <div>
                   <div className="lbl">🎯 NEXT MILESTONE</div>
@@ -730,9 +1267,7 @@ export default function App() {
                 const pct = Math.min((totalNW/m.target)*100, 100);
                 return(
                   <div key={m.target} style={{
-                    background: done ? (theme==="dark"?"rgba(52,211,153,0.1)":"rgba(5,150,105,0.08)")
-                              : active ? (theme==="dark"?"rgba(251,191,36,0.1)":"rgba(217,119,6,0.08)")
-                              : t.CARD,
+                    background: done ? (theme==="dark"?"rgba(52,211,153,0.1)":"rgba(5,150,105,0.08)") : active ? (theme==="dark"?"rgba(251,191,36,0.1)":"rgba(217,119,6,0.08)") : t.CARD,
                     border: `1px solid ${done?t.G:active?t.Y:t.BORDER}`,
                     borderRadius:12, padding:"12px 8px", textAlign:"center",
                   }}>
@@ -752,9 +1287,7 @@ export default function App() {
               const hysaDone = hysaBal >= 50000;
               return(
                 <div style={{
-                  background: hysaDone
-                    ? (theme==="dark"?"rgba(52,211,153,0.08)":"rgba(5,150,105,0.06)")
-                    : (theme==="dark"?"rgba(56,189,248,0.06)":"rgba(37,99,235,0.05)"),
+                  background: hysaDone ? (theme==="dark"?"rgba(52,211,153,0.08)":"rgba(5,150,105,0.06)") : (theme==="dark"?"rgba(56,189,248,0.06)":"rgba(37,99,235,0.05)"),
                   border:`1px solid ${hysaDone?t.G:"#38bdf8"}40`,
                   borderRadius:12,padding:"12px 14px",marginBottom:12,
                 }}>
@@ -835,9 +1368,7 @@ export default function App() {
         {screen==="accounts"&&(
           <div className="slide">
             <div style={{
-              background:theme==="dark"
-                ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))"
-                : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",
+              background:theme==="dark" ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))" : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",
               border:`1px solid ${t.G}40`,
               borderRadius:12,padding:"14px",marginBottom:12,
             }}>
