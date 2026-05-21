@@ -147,7 +147,7 @@ const CACHE_HOURS = 6;
 const CACHE_MS = CACHE_HOURS * 60 * 60 * 1000;
 
 // ─── HORIZONTAL BAR CHART (CATEGORY BREAKDOWN) ────────────────────────────────
-function CategoryBarChart({ data, t, theme }) {
+function CategoryBarChart({ data, t, theme, onBarClick }) {
   if (!data || data.length === 0) return null;
   const max = Math.max(...data.map(d => d.value));
   return (
@@ -156,7 +156,14 @@ function CategoryBarChart({ data, t, theme }) {
         const pct = max > 0 ? (d.value / max) * 100 : 0;
         const color = colorForCategory(d.label);
         return (
-          <div key={i}>
+          <button
+            key={i}
+            onClick={() => onBarClick && onBarClick(d.label)}
+            className="btn"
+            style={{
+              background:"transparent", border:"none", padding:0,
+              textAlign:"left", width:"100%", cursor: onBarClick ? "pointer" : "default",
+            }}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
               <span style={{fontSize:11,color:t.W,fontWeight:600}}>{d.label}</span>
               <span style={{fontSize:11,color:color,fontWeight:700}}>${fmt0(d.value)}</span>
@@ -164,7 +171,7 @@ function CategoryBarChart({ data, t, theme }) {
             <div style={{height:7,background:t.chartGrid,borderRadius:4,overflow:"hidden"}}>
               <div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${color},${color}cc)`,borderRadius:4,transition:"width 0.8s ease-out",boxShadow:`0 0 8px ${color}66`}}/>
             </div>
-          </div>
+          </button>
         );
       })}
     </div>
@@ -369,6 +376,10 @@ export default function App() {
   const [insightsError, setInsightsError] = useState("");
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+
+  // NEW: Category breakdown filter + drill-down state
+  const [categoryPeriod, setCategoryPeriod] = useState("thisMonth"); // "thisMonth" | "lastMonth" | "ytd"
+  const [drilldownCategory, setDrilldownCategory] = useState(null);
   
   const saveRef             = useRef(null);
   const isFirst             = useRef(true);
@@ -444,25 +455,76 @@ export default function App() {
   }, [transactions]);
 
   const last3MonthsStats = monthlyStats.slice(-3);
-  
-  // Category breakdown for last 3 months
+
+  // ─── NEW: Filtered expense list for the selected category period ──────────
+  const filteredExpenses = useMemo(() => {
+    const now = new Date();
+    const thisYear = now.getFullYear();
+    const thisMo = now.getMonth();
+    const lastMoDate = new Date(thisYear, thisMo - 1, 1);
+    const lastMoKey = `${lastMoDate.getFullYear()}-${String(lastMoDate.getMonth()+1).padStart(2,"0")}`;
+    const thisMoKey = `${thisYear}-${String(thisMo+1).padStart(2,"0")}`;
+    const yearKey = String(thisYear);
+
+    return transactions.filter(tx => {
+      if (tx.type !== "expense") return false;
+      if (!tx.date) return false;
+      if (categoryPeriod === "thisMonth") return tx.date.startsWith(thisMoKey);
+      if (categoryPeriod === "lastMonth") return tx.date.startsWith(lastMoKey);
+      if (categoryPeriod === "ytd") return tx.date.startsWith(yearKey);
+      return false;
+    });
+  }, [transactions, categoryPeriod]);
+
+  // Category breakdown for the selected period
   const categoryBreakdown = useMemo(() => {
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - 3);
-    const cutoffStr = cutoff.toISOString().split("T")[0];
-    
     const totals = {};
-    transactions
-      .filter(t => t.type === "expense" && t.date >= cutoffStr)
-      .forEach(t => {
-        const cat = t.category || "Other";
-        totals[cat] = (totals[cat] || 0) + t.amount;
-      });
-    
+    filteredExpenses.forEach(t => {
+      const cat = t.category || "Other";
+      totals[cat] = (totals[cat] || 0) + t.amount;
+    });
     return Object.entries(totals)
       .map(([label, value]) => ({ label, value }))
       .sort((a,b) => b.value - a.value);
+  }, [filteredExpenses]);
+
+  // Period totals + last month total (for pace indicator)
+  const periodTotalSpend = useMemo(() =>
+    filteredExpenses.reduce((s, tx) => s + tx.amount, 0),
+  [filteredExpenses]);
+
+  const lastMonthTotalSpend = useMemo(() => {
+    const now = new Date();
+    const lastMoDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMoKey = `${lastMoDate.getFullYear()}-${String(lastMoDate.getMonth()+1).padStart(2,"0")}`;
+    return transactions
+      .filter(tx => tx.type === "expense" && tx.date?.startsWith(lastMoKey))
+      .reduce((s, tx) => s + tx.amount, 0);
   }, [transactions]);
+
+  // Drill-down: transactions in selected category, sorted by amount descending
+  const drilldownTxns = useMemo(() => {
+    if (!drilldownCategory) return [];
+    return filteredExpenses
+      .filter(tx => (tx.category || "Other") === drilldownCategory)
+      .sort((a, b) => b.amount - a.amount);
+  }, [filteredExpenses, drilldownCategory]);
+
+  // Period label for display
+  const now = new Date();
+  const periodLabel = categoryPeriod === "thisMonth"
+    ? now.toLocaleDateString("en-US", { month: "long" }).toUpperCase()
+    : categoryPeriod === "lastMonth"
+      ? new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleDateString("en-US", { month: "long" }).toUpperCase()
+      : `${now.getFullYear()} YTD`;
+
+  // Pace indicator math (only used when "This Month" is selected)
+  const dayOfMonth = now.getDate();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const pacePct = lastMonthTotalSpend > 0 ? Math.round((periodTotalSpend / lastMonthTotalSpend) * 100) : 0;
+  const expectedPct = Math.round((dayOfMonth / daysInMonth) * 100);
+  const isOverPace = pacePct > expectedPct + 5;
+  const isUnderPace = pacePct < expectedPct - 5;
 
   // YTD top categories
   const ytdCategories = useMemo(() => {
@@ -850,6 +912,10 @@ export default function App() {
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
         .insightCard{transition:transform 0.2s ease;}
         .insightCard:hover{transform:translateY(-1px);}
+        .sheetBackdrop{animation:fadeIn 0.2s ease;}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        .sheetUp{animation:sheetSlide 0.25s ease-out;}
+        @keyframes sheetSlide{from{transform:translateY(100%)}to{transform:translateY(0)}}
       `}</style>
 
       {toast&&(
@@ -1017,13 +1083,91 @@ export default function App() {
               <LineChart data={monthlyStats} t={t} theme={theme}/>
             </div>
 
-            {/* CATEGORY BREAKDOWN (LAST 3 MONTHS) */}
+            {/* ════ NEW CATEGORY BREAKDOWN (FILTERED + DRILL-DOWN) ════ */}
             <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12}}>
-              <div className="lbl" style={{marginBottom:10}}>📊 SPENDING BY CATEGORY (LAST 3 MONTHS)</div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div className="lbl" style={{margin:0}}>📊 SPENDING BY CATEGORY</div>
+                <span style={{fontSize:9,color:t.S,letterSpacing:"0.14em",fontWeight:700}}>{periodLabel}</span>
+              </div>
+
+              {/* Filter pills */}
+              <div style={{display:"flex",gap:5,marginBottom:12}}>
+                {[
+                  { key:"thisMonth", label:"THIS MONTH" },
+                  { key:"lastMonth", label:"LAST MONTH" },
+                  { key:"ytd",       label:"YTD" },
+                ].map(opt => {
+                  const active = categoryPeriod === opt.key;
+                  return (
+                    <button key={opt.key}
+                      onClick={() => setCategoryPeriod(opt.key)}
+                      className="btn"
+                      style={{
+                        flex:1,
+                        background: active ? `${t.G}22` : t.cardSubtle,
+                        border: `1px solid ${active ? t.G : t.BORDER}`,
+                        borderRadius: 8,
+                        padding: "7px 4px",
+                        color: active ? t.G : t.W,
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: "0.08em",
+                      }}>
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Pace indicator (only on This Month, only if last month had spend) */}
+              {categoryPeriod === "thisMonth" && lastMonthTotalSpend > 0 && (
+                <div style={{
+                  background: isOverPace ? `${t.R}1a` : isUnderPace ? `${t.G}1a` : t.cardSubtle,
+                  border: `1px solid ${isOverPace ? t.R : isUnderPace ? t.G : t.BORDER}40`,
+                  borderRadius: 9,
+                  padding: "9px 11px",
+                  marginBottom: 12,
+                  fontSize: 11,
+                  lineHeight: 1.5,
+                  color: t.W,
+                }}>
+                  <div>
+                    <span style={{fontWeight:700}}>Day {dayOfMonth} of {daysInMonth}</span> · spent{" "}
+                    <span style={{fontWeight:700}}>${fmt0(periodTotalSpend)}</span>
+                    {" "}({pacePct}% of last month's ${fmt0(lastMonthTotalSpend)})
+                  </div>
+                  <div style={{fontSize:10,color:t.S,marginTop:3}}>
+                    {isOverPace && "🔥 Outpacing last month. Ease up."}
+                    {isUnderPace && "🧊 Under pace. Keep it tight."}
+                    {!isOverPace && !isUnderPace && "📍 Right on pace with last month."}
+                  </div>
+                </div>
+              )}
+
+              {/* Bar chart (clickable) */}
               {categoryBreakdown.length > 0 ? (
-                <CategoryBarChart data={categoryBreakdown} t={t} theme={theme}/>
+                <CategoryBarChart
+                  data={categoryBreakdown}
+                  t={t}
+                  theme={theme}
+                  onBarClick={(label) => setDrilldownCategory(label)}
+                />
               ) : (
-                <div style={{fontSize:11,color:t.S,fontStyle:"italic",textAlign:"center",padding:14}}>No expense data yet 📝</div>
+                <div style={{fontSize:11,color:t.S,fontStyle:"italic",textAlign:"center",padding:14}}>
+                  No expenses logged for this period 📝
+                </div>
+              )}
+
+              {/* Period total footer */}
+              {categoryBreakdown.length > 0 && (
+                <div style={{
+                  display:"flex",justifyContent:"space-between",alignItems:"center",
+                  marginTop:10,paddingTop:10,borderTop:`1px solid ${t.BORDER}`,
+                  fontSize:11,fontWeight:700,color:t.W,
+                }}>
+                  <span>TOTAL</span>
+                  <span>${fmt0(periodTotalSpend)}</span>
+                </div>
               )}
             </div>
 
@@ -1460,6 +1604,99 @@ export default function App() {
         )}
 
       </div>
+
+      {/* ════ DRILL-DOWN BOTTOM SHEET (overlays everything when active) ════ */}
+      {drilldownCategory && (
+        <>
+          <div
+            className="sheetBackdrop"
+            onClick={() => setDrilldownCategory(null)}
+            style={{
+              position:"fixed", inset:0,
+              background:"rgba(0,0,0,0.6)",
+              zIndex:200,
+            }}
+          />
+          <div
+            className="sheetUp"
+            style={{
+              position:"fixed", left:0, right:0, bottom:0,
+              background:t.BG,
+              borderTopLeftRadius:20, borderTopRightRadius:20,
+              maxHeight:"80vh", zIndex:201,
+              boxShadow:"0 -10px 40px rgba(0,0,0,0.5)",
+              display:"flex", flexDirection:"column",
+              borderTop:`1px solid ${t.BORDER}`,
+            }}
+          >
+            {/* Drag handle */}
+            <div style={{display:"flex",justifyContent:"center",padding:"10px 0 4px"}}>
+              <div style={{width:40,height:4,background:t.BORDER,borderRadius:2}}/>
+            </div>
+
+            {/* Header */}
+            <div style={{padding:"6px 18px 14px",borderBottom:`1px solid ${t.BORDER}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:9,color:t.S,letterSpacing:"0.14em",fontWeight:700}}>{periodLabel}</div>
+                  <div style={{fontSize:17,fontWeight:900,color:t.W,marginTop:2,display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{color:colorForCategory(drilldownCategory)}}>●</span>
+                    {drilldownCategory}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDrilldownCategory(null)}
+                  className="btn"
+                  style={{
+                    background:t.CARD, border:`1px solid ${t.BORDER}`,
+                    width:32, height:32, borderRadius:16,
+                    color:t.W, fontSize:14, fontWeight:700,
+                    flexShrink:0,
+                  }}>
+                  ✕
+                </button>
+              </div>
+              <div style={{marginTop:8,fontSize:11,color:t.S}}>
+                {drilldownTxns.length} transaction{drilldownTxns.length === 1 ? "" : "s"} ·{" "}
+                <span style={{color:t.W,fontWeight:700}}>
+                  ${fmt(drilldownTxns.reduce((s,tx)=>s+tx.amount,0))}
+                </span> total
+              </div>
+            </div>
+
+            {/* Transaction list (scrollable, sorted by amount desc) */}
+            <div style={{overflowY:"auto",padding:"6px 18px 24px",flex:1}}>
+              {drilldownTxns.length === 0 ? (
+                <div style={{textAlign:"center",padding:30,fontSize:11,color:t.S,fontStyle:"italic"}}>
+                  No transactions in this category for the selected period.
+                </div>
+              ) : drilldownTxns.map((tx, i) => {
+                const fromAcc = getAccount(tx.fromAccount);
+                return (
+                  <div key={tx.id} style={{
+                    display:"flex",justifyContent:"space-between",alignItems:"center",
+                    padding:"10px 0",
+                    borderBottom: i < drilldownTxns.length - 1 ? `1px solid ${t.BORDER}` : "none",
+                  }}>
+                    <div style={{flex:1,minWidth:0,paddingRight:10}}>
+                      <div style={{fontSize:12,color:t.W,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {tx.description || tx.note || "(no description)"}
+                      </div>
+                      <div style={{fontSize:10,color:t.S,marginTop:2}}>
+                        {tx.date}{fromAcc ? ` · ${fromAcc.icon} ${fromAcc.label}` : ""}
+                      </div>
+                    </div>
+                    <div style={{fontSize:13,fontWeight:700,color:t.R,flexShrink:0}}>
+                      -${fmt(tx.amount)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
     </div>
   );
 }
