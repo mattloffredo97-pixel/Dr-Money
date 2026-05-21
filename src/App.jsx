@@ -1171,21 +1171,6 @@ export default function App() {
               )}
             </div>
 
-            {/* TOP CATEGORIES YTD */}
-            {ytdCategories.length > 0 && (
-              <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12}}>
-                <div className="lbl" style={{marginBottom:8}}>🏆 TOP 5 CATEGORIES (YTD)</div>
-                {ytdCategories.map((c, i) => (
-                  <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:i<ytdCategories.length-1?`1px solid ${t.BORDER}`:"none"}}>
-                    <span style={{fontSize:11,color:t.W,fontWeight:600}}>
-                      <span style={{color:colorForCategory(c.label),marginRight:6}}>●</span>{c.label}
-                    </span>
-                    <span style={{fontSize:11,color:t.W,fontWeight:700}}>${fmt0(c.value)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
             {/* CONVERSATIONAL CHAT */}
             <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
