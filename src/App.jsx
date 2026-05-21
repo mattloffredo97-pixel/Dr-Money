@@ -371,6 +371,9 @@ export default function App() {
   });
   const [isCategorizing, setCategorizing] = useState(false);
   
+  // 🪩 STRIPPER POLE ANIMATION — fires on income logging
+  const [poleAnimation, setPoleAnimation] = useState(null); // { amount } or null
+  
   // Matt-bot state
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState("");
@@ -702,7 +705,12 @@ export default function App() {
     }
     patch({ transactions: newTx, assets: newA, debts: newD, streak: newStr, lastLog: newLL });
     setForm(f => ({...f, amount:"", description:"", note:""}));
-    if (form.type==="income") showToast(getPraise(),"praise");
+    if (form.type==="income") {
+      showToast(getPraise(),"praise");
+      // 🪩 TRIGGER THE STRIPPER POLE ANIMATION
+      setPoleAnimation({ amount: amt });
+      setTimeout(() => setPoleAnimation(null), 3500);
+    }
     else showToast(`Transferred $${fmt(amt)} 💸`,"praise");
   };
 
@@ -916,6 +924,28 @@ export default function App() {
         @keyframes fadeIn{from{opacity:0}to{opacity:1}}
         .sheetUp{animation:sheetSlide 0.25s ease-out;}
         @keyframes sheetSlide{from{transform:translateY(100%)}to{transform:translateY(0)}}
+
+        /* 🪩 STRIPPER POLE ANIMATION */
+        @keyframes poleSlide {
+          0%   { top:-200px; transform: translateX(-50%) rotate(0deg); }
+          15%  { top:5%;     transform: translateX(-50%) rotate(180deg); }
+          80%  { top:60%;    transform: translateX(-50%) rotate(1620deg); }
+          100% { top:60%;    transform: translateX(-50%) rotate(1620deg); opacity:1; }
+        }
+        @keyframes moneyFall {
+          0%   { transform: translateY(-50px) rotate(0deg);   opacity:1; }
+          100% { transform: translateY(100vh) rotate(720deg); opacity:0; }
+        }
+        @keyframes poleGlow {
+          0%,100% { box-shadow:0 0 15px #fbbf24, 0 0 30px #fbbf24aa; }
+          50%     { box-shadow:0 0 25px #fbbf24, 0 0 50px #fbbf24cc; }
+        }
+        @keyframes amountPop {
+          0%   { transform: translateX(-50%) scale(0);   opacity:0; }
+          40%  { transform: translateX(-50%) scale(1.4); opacity:1; }
+          60%  { transform: translateX(-50%) scale(1);   opacity:1; }
+          100% { transform: translateX(-50%) scale(1);   opacity:1; }
+        }
       `}</style>
 
       {toast&&(
@@ -1680,6 +1710,90 @@ export default function App() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════ */}
+      {/* 🪩 THE LEGENDARY STRIPPER POLE INCOME ANIMATION                  */}
+      {/* ════════════════════════════════════════════════════════════════ */}
+      {poleAnimation && (
+        <div style={{
+          position:"fixed", inset:0, zIndex:9999,
+          background:"radial-gradient(ellipse at center, rgba(251,191,36,0.25), rgba(0,0,0,0.85))",
+          overflow:"hidden", pointerEvents:"none",
+        }}>
+          {/* The pole — vertical golden bar down the center */}
+          <div style={{
+            position:"absolute", top:0, bottom:0, left:"50%",
+            transform:"translateX(-50%)",
+            width:8,
+            background:"linear-gradient(180deg, #fde68a, #fbbf24 50%, #d97706)",
+            borderRadius:4,
+            animation:"poleGlow 1s ease-in-out infinite",
+          }}/>
+
+          {/* Matt-bot sliding & spinning down the pole */}
+          <img
+            src="/matt-back.png"
+            alt=""
+            style={{
+              position:"absolute",
+              left:"50%",
+              width:140,
+              height:"auto",
+              transformOrigin:"center center",
+              animation:"poleSlide 3s cubic-bezier(0.34, 1.2, 0.64, 1) forwards",
+              imageRendering:"pixelated",
+              filter:"drop-shadow(0 0 12px rgba(251,191,36,0.8))",
+              zIndex:2,
+            }}
+          />
+
+          {/* Money confetti — 18 emoji raining from the top */}
+          {Array.from({length:18}).map((_,i)=>{
+            const emoji = ["💵","💸","💰","🤑","💲"][i % 5];
+            const left = Math.random() * 100;
+            const delay = Math.random() * 1.5;
+            const duration = 2 + Math.random() * 1.5;
+            const size = 22 + Math.random() * 18;
+            return (
+              <div key={i} style={{
+                position:"absolute",
+                left:`${left}%`,
+                top:0,
+                fontSize:size,
+                animation:`moneyFall ${duration}s linear ${delay}s forwards`,
+                zIndex:1,
+              }}>{emoji}</div>
+            );
+          })}
+
+          {/* The amount popping up at the bottom */}
+          <div style={{
+            position:"absolute",
+            bottom:"15%",
+            left:"50%",
+            transform:"translateX(-50%)",
+            animation:"amountPop 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 1s forwards",
+            opacity:0,
+            textAlign:"center",
+            zIndex:3,
+          }}>
+            <div style={{
+              fontSize:14, color:"#fbbf24", fontFamily:"'Courier New',monospace",
+              fontWeight:700, letterSpacing:"0.2em", marginBottom:4,
+              textShadow:"0 0 10px rgba(251,191,36,0.8)",
+            }}>+ INCOME +</div>
+            <div style={{
+              fontSize:42, color:"#34d399", fontFamily:"'Courier New',monospace",
+              fontWeight:900,
+              textShadow:"0 0 15px rgba(52,211,153,0.9), 0 4px 12px rgba(0,0,0,0.6)",
+            }}>${fmt(poleAnimation.amount)}</div>
+            <div style={{
+              fontSize:11, color:"#fde68a", fontFamily:"'Courier New',monospace",
+              marginTop:6, letterSpacing:"0.1em",
+            }}>MATT-BOT APPROVES 🪩</div>
+          </div>
+        </div>
       )}
 
     </div>
