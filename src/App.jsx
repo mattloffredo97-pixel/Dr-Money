@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react"; import CategoryBreakdown from './CategoryBreakdown';
 
 const MILESTONES = [
   { target:100000,  label:"First $100K",    icon:"🌱" },
