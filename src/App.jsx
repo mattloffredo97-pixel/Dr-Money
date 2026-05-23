@@ -927,10 +927,10 @@ export default function App() {
 
         /* 🪩 STRIPPER POLE ANIMATION */
         @keyframes poleSlide {
-          0%   { top:-200px; transform: translateX(-50%) rotate(0deg); }
-          15%  { top:5%;     transform: translateX(-50%) rotate(180deg); }
-          80%  { top:60%;    transform: translateX(-50%) rotate(1620deg); }
-          100% { top:60%;    transform: translateX(-50%) rotate(1620deg); opacity:1; }
+          0%   { top:-150px; transform: translateX(-50%) rotateY(0deg); }
+          15%  { top:5%;     transform: translateX(-50%) rotateY(90deg); }
+          80%  { top:60%;    transform: translateX(-50%) rotateY(720deg); }
+          100% { top:60%;    transform: translateX(-50%) rotateY(720deg); opacity:1; }
         }
         @keyframes moneyFall {
           0%   { transform: translateY(-50px) rotate(0deg);   opacity:1; }
@@ -1738,9 +1738,10 @@ export default function App() {
             style={{
               position:"absolute",
               left:"50%",
-              width:140,
+              width:90,
               height:"auto",
               transformOrigin:"center center",
+              transformStyle:"preserve-3d",
               animation:"poleSlide 3s cubic-bezier(0.34, 1.2, 0.64, 1) forwards",
               imageRendering:"pixelated",
               filter:"drop-shadow(0 0 12px rgba(251,191,36,0.8))",
