@@ -897,7 +897,7 @@ export default function App() {
   const insightAge = insightsCache?.timestamp ? Math.floor((Date.now() - insightsCache.timestamp) / 60000) : null;
 
   return (
-    <div style={{minHeight:"100vh",background:t.BG,color:t.W,fontFamily:"'Courier New',monospace",paddingBottom:60,transition:"background 0.3s, color 0.3s"}}>
+    <div style={{minHeight:"100vh",background:t.BG,color:t.W,fontFamily:"'Courier New',monospace",paddingBottom:"calc(80px + env(safe-area-inset-bottom))",transition:"background 0.3s, color 0.3s"}}>
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
         ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#334155;border-radius:2px}
@@ -984,26 +984,7 @@ export default function App() {
           </div>
         )}
 
-        {/* NAV */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4,marginBottom:12}}>
-          {[
-            {id:"dashboard",icon:"📊",label:"HOME"},
-            {id:"log",      icon:"➕",label:"LOG"},
-            {id:"mattbot", icon:"🤖",label:"MATT"},
-            {id:"accounts", icon:"🏦",label:"ACCTS"},
-            {id:"history",  icon:"📋",label:"HIST"},
-          ].map(({id,icon,label})=>(
-            <button key={id} onClick={()=>setScreen(id)} className="btn" style={{
-              background:screen===id?(theme==="dark"?"rgba(52,211,153,0.12)":"rgba(5,150,105,0.1)"):t.CARD,
-              border:`1px solid ${screen===id?t.G:t.BORDER}`,
-              borderRadius:10,padding:"7px 3px",
-              color:screen===id?t.G:t.W,
-              fontSize:9,letterSpacing:"0.06em",
-            }}>
-              <div style={{fontSize:14,marginBottom:1}}>{icon}</div>{label}
-            </button>
-          ))}
-        </div>
+        {/* NAV moved to bottom-fixed bar at end of component */}
 
         {/* ══ MATT-BOT TAB — THE PROACTIVE DASHBOARD ═════════════════════════ */}
         {screen==="mattbot"&&(
@@ -1796,6 +1777,47 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ════════════════════════════════════════════════════════════════ */}
+      {/* 📍 BOTTOM-PINNED NAVIGATION BAR                                   */}
+      {/* ════════════════════════════════════════════════════════════════ */}
+      <div style={{
+        position:"fixed",
+        bottom:0, left:0, right:0,
+        background:t.headerBg,
+        borderTop:`1px solid ${t.BORDER}`,
+        backdropFilter:"blur(12px)",
+        WebkitBackdropFilter:"blur(12px)",
+        paddingBottom:"env(safe-area-inset-bottom)",
+        zIndex:100,
+      }}>
+        <div style={{
+          maxWidth:500, margin:"0 auto",
+          padding:"8px 10px",
+          display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:4,
+        }}>
+          {[
+            {id:"dashboard",icon:"📊",label:"HOME"},
+            {id:"log",      icon:"➕",label:"LOG"},
+            {id:"mattbot",  icon:"🤖",label:"MATT"},
+            {id:"accounts", icon:"🏦",label:"ACCTS"},
+            {id:"history",  icon:"📋",label:"HIST"},
+          ].map(({id,icon,label})=>(
+            <button key={id} onClick={()=>setScreen(id)} className="btn" style={{
+              background:screen===id?(theme==="dark"?"rgba(52,211,153,0.12)":"rgba(5,150,105,0.1)"):"transparent",
+              border:`1px solid ${screen===id?t.G:"transparent"}`,
+              borderRadius:10, padding:"8px 3px",
+              color:screen===id?t.G:t.S,
+              fontSize:9, letterSpacing:"0.06em", fontWeight:700,
+              display:"flex", flexDirection:"column", alignItems:"center", gap:2,
+              transition:"all 0.15s",
+            }}>
+              <div style={{fontSize:18, lineHeight:1}}>{icon}</div>
+              <div>{label}</div>
+            </button>
+          ))}
+        </div>
+      </div>
 
     </div>
   );
