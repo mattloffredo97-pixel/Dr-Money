@@ -128,6 +128,9 @@ const THEMES = {
     secondaryText: "#94a3b8",
     cardSubtle: "rgba(255,255,255,0.06)",
     chartGrid: "rgba(255,255,255,0.08)",
+    aeroShadow: "none",
+    aeroShadowSubtle: "none",
+    isAero: false,
   },
   light: {
     W: "#0f172a", S: "#475569", G: "#059669", R: "#dc2626", Y: "#d97706", B: "#2563eb", P: "#7c3aed",
@@ -140,6 +143,27 @@ const THEMES = {
     secondaryText: "#64748b",
     cardSubtle: "rgba(15,23,42,0.05)",
     chartGrid: "rgba(15,23,42,0.06)",
+    aeroShadow: "none",
+    aeroShadowSubtle: "none",
+    isAero: false,
+  },
+  aero: {
+    W: "#ffffff", S: "#cbd5e1", G: "#34d399", R: "#f87171", Y: "#fbbf24", B: "#60a5fa", P: "#a78bfa",
+    BG: "linear-gradient(180deg, #0a1628 0%, #142540 50%, #0d1a30 100%)",
+    CARD: "linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02))",
+    BORDER: "rgba(255,255,255,0.15)",
+    headerBg: "rgba(10,22,40,0.65)",
+    inputBg: "linear-gradient(180deg, rgba(0,0,0,0.25), rgba(255,255,255,0.04))",
+    inputBorder: "rgba(255,255,255,0.2)",
+    placeholderColor: "#5a6b8a",
+    selectBg: "#0a1628",
+    btnText: "#0a1628",
+    secondaryText: "#8aa4c4",
+    cardSubtle: "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.01))",
+    chartGrid: "rgba(255,255,255,0.08)",
+    aeroShadow: "inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 16px rgba(0,0,0,0.35)",
+    aeroShadowSubtle: "inset 0 1px 0 rgba(255,255,255,0.12)",
+    isAero: true,
   },
 };
 
@@ -425,7 +449,7 @@ export default function App() {
   const showToast = (msg, type="info") => { setToast({msg,type}); setTimeout(()=>setToast(null),4000); };
 
   const { transactions, assets, debts, balHistory, streak, lastLog, theme="dark", insightsCache, chatHistory } = data;
-  const t = THEMES[theme];
+  const t = THEMES[theme] || THEMES.dark;
 
   const totalAssets = Object.values(assets).reduce((s,v)=>s+(+v||0),0);
   const totalDebts  = Object.values(debts).reduce((s,v)=>s+(+v||0),0);
@@ -851,7 +875,10 @@ export default function App() {
     reader.readAsText(file); e.target.value = "";
   };
 
-  const toggleTheme = () => patch({ theme: theme === "dark" ? "light" : "dark" });
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "aero" : theme === "aero" ? "light" : "dark";
+    patch({ theme: next });
+  };
 
   const clearChat = () => patch({ chatHistory: [] });
 
@@ -969,8 +996,8 @@ export default function App() {
               <div className="lbl">STREAK</div>
               <div style={{fontSize:11,color:"#fb923c",fontWeight:700}}>{streak>0?`🔥${streak}`:"💤0"}</div>
             </div>
-            <button onClick={toggleTheme} className="btn" style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:18,padding:"6px 10px",fontSize:14,lineHeight:1}}>
-              {theme==="dark" ? "☀️" : "🌙"}
+            <button onClick={toggleTheme} className="btn" style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:18,padding:"6px 10px",fontSize:14,lineHeight:1, boxShadow:t.aeroShadowSubtle}}>
+              {theme==="dark" ? "🌑" : theme==="aero" ? "💎" : "☀️"}
             </button>
           </div>
         </div>
@@ -1059,7 +1086,7 @@ export default function App() {
             )}
 
             {/* PROJECTION */}
-            <div style={{background:`linear-gradient(135deg, ${t.Y}14, ${t.G}08)`,border:`1px solid ${t.Y}40`,borderRadius:14,padding:"14px",marginBottom:12}}>
+            <div style={{background:`linear-gradient(135deg, ${t.Y}14, ${t.G}08)`,border:`1px solid ${t.Y}40`,borderRadius:14,padding:"14px",marginBottom:12,boxShadow:t.aeroShadow}}>
               <div className="lbl" style={{color:t.Y}}>🔮 PROJECTION</div>
               {isFinite(monthsToGoal) ? (
                 <>
@@ -1083,7 +1110,7 @@ export default function App() {
             </div>
 
             {/* INCOME VS EXPENSES OVER TIME */}
-            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12}}>
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow:t.aeroShadow}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <div className="lbl">📈 INCOME VS EXPENSES</div>
                 <div style={{display:"flex",gap:10,fontSize:9}}>
@@ -1095,7 +1122,7 @@ export default function App() {
             </div>
 
             {/* ════ NEW CATEGORY BREAKDOWN (FILTERED + DRILL-DOWN) ════ */}
-            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12}}>
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow:t.aeroShadow}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                 <div className="lbl" style={{margin:0}}>📊 SPENDING BY CATEGORY</div>
                 <span style={{fontSize:9,color:t.S,letterSpacing:"0.14em",fontWeight:700}}>{periodLabel}</span>
@@ -1183,7 +1210,7 @@ export default function App() {
             </div>
 
             {/* CONVERSATIONAL CHAT */}
-            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12}}>
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow:t.aeroShadow}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <div className="lbl">💬 ASK MATT-BOT</div>
                 {chatHistory.length > 0 && (
@@ -1388,11 +1415,14 @@ export default function App() {
         {screen==="dashboard"&&(
           <div className="slide">
             <div style={{
-              background: theme==="dark"
+              background: theme==="aero"
+                ? "linear-gradient(135deg, rgba(52,211,153,0.18), rgba(96,165,250,0.10) 50%, rgba(167,139,250,0.06))"
+                : theme==="dark"
                 ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))"
                 : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",
               border:`1px solid ${t.G}40`,
               borderRadius:16,padding:"18px",marginBottom:12,
+              boxShadow: t.aeroShadow,
             }}>
               <div className="lbl">NET WORTH</div>
               <div style={{fontSize:32,fontWeight:900,color:t.W,letterSpacing:"-0.02em"}}>${fmt(totalNW)}</div>
@@ -1430,6 +1460,7 @@ export default function App() {
                     background: done ? (theme==="dark"?"rgba(52,211,153,0.1)":"rgba(5,150,105,0.08)") : active ? (theme==="dark"?"rgba(251,191,36,0.1)":"rgba(217,119,6,0.08)") : t.CARD,
                     border: `1px solid ${done?t.G:active?t.Y:t.BORDER}`,
                     borderRadius:12, padding:"12px 8px", textAlign:"center",
+                    boxShadow: t.aeroShadow,
                   }}>
                     <div style={{fontSize:22,marginBottom:2}}>{m.icon}</div>
                     <div style={{fontSize:11,color:t.W,fontWeight:700}}>{fmtK(m.target)}</div>
@@ -1450,6 +1481,7 @@ export default function App() {
                   background: hysaDone ? (theme==="dark"?"rgba(52,211,153,0.08)":"rgba(5,150,105,0.06)") : (theme==="dark"?"rgba(56,189,248,0.06)":"rgba(37,99,235,0.05)"),
                   border:`1px solid ${hysaDone?t.G:"#38bdf8"}40`,
                   borderRadius:12,padding:"12px 14px",marginBottom:12,
+                  boxShadow: t.aeroShadow,
                 }}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                     <div>
@@ -1467,15 +1499,15 @@ export default function App() {
             })()}
 
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
-              <div style={{background:t.CARD,border:`1px solid ${t.B}40`,borderRadius:12,padding:"12px"}}>
+              <div style={{background:t.CARD,border:`1px solid ${t.B}40`,borderRadius:12,padding:"12px",boxShadow:t.aeroShadow}}>
                 <div className="lbl">💵 CASH</div>
                 <div style={{fontSize:14,fontWeight:700,color:t.B,marginTop:2}}>${fmt(cashTotal)}</div>
               </div>
-              <div style={{background:t.CARD,border:`1px solid ${t.P}40`,borderRadius:12,padding:"12px"}}>
+              <div style={{background:t.CARD,border:`1px solid ${t.P}40`,borderRadius:12,padding:"12px",boxShadow:t.aeroShadow}}>
                 <div className="lbl">📈 INVESTED</div>
                 <div style={{fontSize:14,fontWeight:700,color:t.P,marginTop:2}}>${fmt(investTotal)}</div>
               </div>
-              <div style={{background:t.CARD,border:`1px solid ${t.R}40`,borderRadius:12,padding:"12px"}}>
+              <div style={{background:t.CARD,border:`1px solid ${t.R}40`,borderRadius:12,padding:"12px",boxShadow:t.aeroShadow}}>
                 <div className="lbl">💳 DEBT</div>
                 <div style={{fontSize:14,fontWeight:700,color:t.R,marginTop:2}}>${fmt(totalDebts)}</div>
               </div>
@@ -1494,7 +1526,7 @@ export default function App() {
             )}
 
             <div className="lbl" style={{marginBottom:6}}>📆 {thisMonth}</div>
-            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12}}>
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow:t.aeroShadow}}>
               <div style={{display:"flex",justifyContent:"space-between"}}>
                 <div>
                   <div className="lbl">INCOME</div>
@@ -1511,7 +1543,7 @@ export default function App() {
               </div>
             </div>
 
-            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"12px",marginTop:6}}>
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"12px",marginTop:6,boxShadow:t.aeroShadow}}>
               <div className="lbl" style={{marginBottom:8}}>🔐 BACKUP & RESTORE</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                 <button onClick={exportData} className="btn" style={{background:`${t.G}1a`,border:`1px solid ${t.G}40`,borderRadius:8,padding:"9px",color:t.G,fontSize:11,fontWeight:700}}>⬇️ EXPORT</button>
@@ -1528,9 +1560,10 @@ export default function App() {
         {screen==="accounts"&&(
           <div className="slide">
             <div style={{
-              background:theme==="dark" ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))" : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",
+              background: theme==="aero" ? "linear-gradient(135deg, rgba(52,211,153,0.18), rgba(96,165,250,0.10) 50%, rgba(167,139,250,0.06))" : theme==="dark" ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))" : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",
               border:`1px solid ${t.G}40`,
               borderRadius:12,padding:"14px",marginBottom:12,
+              boxShadow: t.aeroShadow,
             }}>
               <div className="lbl">TRUE NET WORTH</div>
               <div style={{fontSize:24,fontWeight:900,color:t.W}}>${fmt(totalNW)}</div>
