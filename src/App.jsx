@@ -571,12 +571,34 @@ export default function App() {
 
   // Average monthly savings rate — uses last 3 COMPLETED months only
   // (excludes current month because it's still in progress and would skew the average)
+  // Smart fallback: if overall average is negative but at least one month was positive,
+  // use only the positive months (your "achievable pace")
   const avgMonthlySavings = useMemo(() => {
-    // Drop the current month (last entry in monthlyStats) since it's incomplete
     const completedMonths = monthlyStats.slice(0, -1);
-    const last3 = completedMonths.slice(-3);
-    if (last3.length === 0) return 0;
-    return last3.reduce((s, m) => s + m.net, 0) / last3.length;
+    // Only count months where transactions were actually logged
+    const monthsWithData = completedMonths.filter(m => m.income > 0 || m.expense > 0);
+    if (monthsWithData.length === 0) return 0;
+    const recent = monthsWithData.slice(-3);
+    const avg = recent.reduce((s, m) => s + m.net, 0) / recent.length;
+    if (avg > 0) return avg;
+    // Fallback: average of positive months only — shows projection based on your good months
+    const positive = recent.filter(m => m.net > 0);
+    if (positive.length > 0) {
+      return positive.reduce((s, m) => s + m.net, 0) / positive.length;
+    }
+    return 0;
+  }, [monthlyStats]);
+
+  // Track what data the projection is based on (for transparent UI labeling)
+  const projectionBasis = useMemo(() => {
+    const completedMonths = monthlyStats.slice(0, -1);
+    const monthsWithData = completedMonths.filter(m => m.income > 0 || m.expense > 0);
+    if (monthsWithData.length === 0) return { count: 0, isOptimistic: false };
+    const recent = monthsWithData.slice(-3);
+    const avg = recent.reduce((s, m) => s + m.net, 0) / recent.length;
+    if (avg > 0) return { count: recent.length, isOptimistic: false };
+    const positive = recent.filter(m => m.net > 0);
+    return { count: positive.length, isOptimistic: positive.length > 0 };
   }, [monthlyStats]);
 
   // Projected months to next milestone
@@ -1093,10 +1115,14 @@ export default function App() {
               <div className="lbl" style={{color:t.Y}}>🔮 PROJECTION</div>
               {isFinite(monthsToGoal) ? (
                 <>
-                  <div style={{fontSize:11,color:t.S,marginBottom:4}}>At your current pace, you'll hit</div>
+                  <div style={{fontSize:11,color:t.S,marginBottom:4}}>{projectionBasis.isOptimistic ? "At your best recent pace, you'll hit" : "At your current pace, you'll hit"}</div>
                   <div style={{fontSize:14,color:t.W,fontWeight:700,marginBottom:2}}>{activeMilestone.icon} {activeMilestone.label}</div>
                   <div style={{fontSize:18,color:t.Y,fontWeight:900}}>{projectedDate || `~${monthsToGoal} months`}</div>
-                  <div style={{fontSize:10,color:t.S,marginTop:4}}>Saving avg ${fmt0(avgMonthlySavings)}/mo · {monthsToGoal} months from now</div>
+                  <div style={{fontSize:10,color:t.S,marginTop:4}}>
+                    {projectionBasis.isOptimistic
+                      ? `Based on your ${projectionBasis.count} savings month${projectionBasis.count===1?"":"s"} · $${fmt0(avgMonthlySavings)}/mo`
+                      : `Based on last ${projectionBasis.count} month${projectionBasis.count===1?"":"s"} avg · $${fmt0(avgMonthlySavings)}/mo`}
+                  </div>
                   <div style={{marginTop:10}}>
                     <ProjectionChart
                       currentNW={totalNW}
@@ -1108,7 +1134,7 @@ export default function App() {
                   </div>
                 </>
               ) : (
-                <div style={{fontSize:11,color:t.S,marginTop:4}}>Save more than you spend each month to see when you'll hit your goal! 📈</div>
+                <div style={{fontSize:11,color:t.S,marginTop:4,lineHeight:1.5}}>Need at least one savings month to project. Once any completed month shows you saving more than you spent, your projection will appear here. 📈</div>
               )}
             </div>
 
