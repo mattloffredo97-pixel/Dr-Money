@@ -569,9 +569,12 @@ export default function App() {
       .slice(0, 5);
   }, [transactions]);
 
-  // Average monthly savings rate (using 3-month average)
+  // Average monthly savings rate — uses last 3 COMPLETED months only
+  // (excludes current month because it's still in progress and would skew the average)
   const avgMonthlySavings = useMemo(() => {
-    const last3 = monthlyStats.slice(-3);
+    // Drop the current month (last entry in monthlyStats) since it's incomplete
+    const completedMonths = monthlyStats.slice(0, -1);
+    const last3 = completedMonths.slice(-3);
     if (last3.length === 0) return 0;
     return last3.reduce((s, m) => s + m.net, 0) / last3.length;
   }, [monthlyStats]);
@@ -1573,35 +1576,37 @@ export default function App() {
               </div>
             </div>
 
-            <div style={{fontSize:11,color:t.W,fontWeight:700,marginBottom:6}}>💰 ASSETS</div>
+            <div style={{fontSize:13,color:t.W,fontWeight:700,marginBottom:6}}>💰 ASSETS</div>
             {ASSET_ACCOUNTS.map(acc=>(
-              <div key={acc.id} style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:10,padding:"10px 12px",marginBottom:6}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                    <span style={{fontSize:18}}>{acc.icon}</span>
+              <div key={acc.id} style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:10,padding:"12px 14px",marginBottom:8,boxShadow:t.aeroShadowSubtle}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                    <span style={{fontSize:22}}>{acc.icon}</span>
                     <div>
-                      <div style={{fontSize:11,color:t.W,fontWeight:700}}>{acc.label}</div>
-                      <div style={{fontSize:9,color:t.S}}>Current: <span style={{color:acc.color,fontWeight:700}}>${fmt(assets[acc.id]||0)}</span></div>
+                      <div style={{fontSize:13,color:t.W,fontWeight:700}}>{acc.label}</div>
+                      <div style={{fontSize:10,color:t.S,marginTop:1}}>Current Balance</div>
                     </div>
                   </div>
+                  <div style={{fontSize:17,color:acc.color,fontWeight:900,letterSpacing:"-0.01em"}}>${fmt(assets[acc.id]||0)}</div>
                 </div>
-                <input type="number" placeholder="Adjust..." value={editA[acc.id]||""} onChange={e=>setEA(p=>({...p,[acc.id]:e.target.value}))} style={{color:acc.color,borderColor:`${acc.color}50`}}/>
+                <input type="number" placeholder="Adjust balance..." value={editA[acc.id]||""} onChange={e=>setEA(p=>({...p,[acc.id]:e.target.value}))} style={{color:acc.color,borderColor:`${acc.color}50`,fontSize:14}}/>
               </div>
             ))}
 
-            <div style={{fontSize:11,color:t.R,fontWeight:700,margin:"14px 0 6px"}}>💳 DEBTS</div>
+            <div style={{fontSize:13,color:t.R,fontWeight:700,margin:"16px 0 6px"}}>💳 DEBTS</div>
             {DEBT_ACCOUNTS.map(acc=>(
-              <div key={acc.id} style={{background:theme==="dark"?"rgba(248,113,113,0.04)":"rgba(220,38,38,0.03)",border:`1px solid ${t.R}26`,borderRadius:10,padding:"10px 12px",marginBottom:6}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                    <span style={{fontSize:18}}>{acc.icon}</span>
+              <div key={acc.id} style={{background:theme==="dark"?"rgba(248,113,113,0.04)":theme==="aero"?"rgba(248,113,113,0.06)":"rgba(220,38,38,0.03)",border:`1px solid ${t.R}26`,borderRadius:10,padding:"12px 14px",marginBottom:8,boxShadow:t.aeroShadowSubtle}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                    <span style={{fontSize:22}}>{acc.icon}</span>
                     <div>
-                      <div style={{fontSize:11,color:t.W,fontWeight:700}}>{acc.label}</div>
-                      <div style={{fontSize:9,color:t.S}}>Owed: <span style={{color:t.R,fontWeight:700}}>${fmt(debts[acc.id]||0)}</span></div>
+                      <div style={{fontSize:13,color:t.W,fontWeight:700}}>{acc.label}</div>
+                      <div style={{fontSize:10,color:t.S,marginTop:1}}>Amount Owed</div>
                     </div>
                   </div>
+                  <div style={{fontSize:17,color:t.R,fontWeight:900,letterSpacing:"-0.01em"}}>${fmt(debts[acc.id]||0)}</div>
                 </div>
-                <input type="number" placeholder="Adjust..." value={editD[acc.id]||""} onChange={e=>setED(p=>({...p,[acc.id]:e.target.value}))} style={{color:t.R,borderColor:`${t.R}66`}}/>
+                <input type="number" placeholder="Adjust balance..." value={editD[acc.id]||""} onChange={e=>setED(p=>({...p,[acc.id]:e.target.value}))} style={{color:t.R,borderColor:`${t.R}66`,fontSize:14}}/>
               </div>
             ))}
 
