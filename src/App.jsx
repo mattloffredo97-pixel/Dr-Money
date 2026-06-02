@@ -1576,7 +1576,7 @@ export default function App() {
               </div>
             </div>
 
-            <div style={{fontSize:13,color:t.W,fontWeight:700,marginBottom:6}}>💰 ASSETS</div>
+            <div style={{fontSize:13,color:t.W,fontWeight:700,marginBottom:6}}>💰 ASSETS <span style={{fontSize:9,color:t.G,marginLeft:6,opacity:0.7}}>●</span></div>
             {ASSET_ACCOUNTS.map(acc=>(
               <div key={acc.id} style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:10,padding:"12px 14px",marginBottom:8,boxShadow:t.aeroShadowSubtle}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -1587,7 +1587,7 @@ export default function App() {
                       <div style={{fontSize:10,color:t.S,marginTop:1}}>Current Balance</div>
                     </div>
                   </div>
-                  <div style={{fontSize:17,color:acc.color,fontWeight:900,letterSpacing:"-0.01em"}}>${fmt(assets[acc.id]||0)}</div>
+                  <div style={{fontSize:18,color:acc.color,fontWeight:900,letterSpacing:"-0.01em"}}>${fmt(assets[acc.id]||0)}</div>
                 </div>
                 <input type="number" placeholder="Adjust balance..." value={editA[acc.id]||""} onChange={e=>setEA(p=>({...p,[acc.id]:e.target.value}))} style={{color:acc.color,borderColor:`${acc.color}50`,fontSize:14}}/>
               </div>
@@ -1604,7 +1604,7 @@ export default function App() {
                       <div style={{fontSize:10,color:t.S,marginTop:1}}>Amount Owed</div>
                     </div>
                   </div>
-                  <div style={{fontSize:17,color:t.R,fontWeight:900,letterSpacing:"-0.01em"}}>${fmt(debts[acc.id]||0)}</div>
+                  <div style={{fontSize:18,color:t.R,fontWeight:900,letterSpacing:"-0.01em"}}>${fmt(debts[acc.id]||0)}</div>
                 </div>
                 <input type="number" placeholder="Adjust balance..." value={editD[acc.id]||""} onChange={e=>setED(p=>({...p,[acc.id]:e.target.value}))} style={{color:t.R,borderColor:`${t.R}66`,fontSize:14}}/>
               </div>
