@@ -314,7 +314,6 @@ export default function App() {
 
   const totalAssets = Object.values(assets).reduce((s,v)=>s+(+v||0),0);
   const totalDebts  = Object.values(debts).reduce((s,v)=>s+(+v||0),0);
-  // Net worth = regular assets - debts + ONLY Matt's wedding fund contribution
   const totalNW     = totalAssets - totalDebts + (+(weddingFund?.mattContrib)||0);
   const investTotal = (+(assets.investments)||0)+(+(assets.joint_invest)||0)+(+(assets.sharkninja)||0);
   const cashTotal   = totalAssets - investTotal;
@@ -412,7 +411,6 @@ export default function App() {
     setForm(f => ({...f, amount: curr + k}));
   };
 
-  // Apply transaction to balances — now handles wedding fund specially
   const applyToBalances = (tx, currentAssets, currentDebts, currentWeddingFund) => {
     const newA = {...currentAssets};
     const newD = {...currentDebts};
@@ -428,14 +426,12 @@ export default function App() {
     } else if (tx.type === "transfer") {
       const fromAcc = getAccount(tx.fromAccount);
       const toAcc = getAccount(tx.toAccount);
-      // FROM side
       if (fromAcc?.type === "asset") newA[tx.fromAccount] = Math.max(0, (+newA[tx.fromAccount]||0) - amt);
       else if (fromAcc?.type === "debt") newD[tx.fromAccount] = (+newD[tx.fromAccount]||0) + amt;
       else if (fromAcc?.type === "wedding") {
         newW.total = Math.max(0, (+newW.total||0) - amt);
         newW.mattContrib = Math.max(0, (+newW.mattContrib||0) - amt);
       }
-      // TO side
       if (toAcc?.type === "asset") newA[tx.toAccount] = (+newA[tx.toAccount]||0) + amt;
       else if (toAcc?.type === "debt") newD[tx.toAccount] = Math.max(0, (+newD[tx.toAccount]||0) - amt);
       else if (toAcc?.type === "wedding") {
@@ -533,7 +529,6 @@ export default function App() {
     else handleIncomeTransferSubmit();
   };
 
-  // ─── LOG NIC'S CONTRIBUTION ──────────────────────────────────────────────
   const logNicContribution = () => {
     const amt = parseFloat(nicAmt);
     if (!amt || amt <= 0) { showToast("Enter a valid amount. 🙄","error"); return; }
@@ -550,7 +545,6 @@ export default function App() {
     showToast(`💒 Nic contributed $${fmt(amt)}! 💕`,"praise");
   };
 
-  // Insights + chat
   const loadInsights = async (forceRefresh = false) => {
     if (!forceRefresh && insightsCache?.timestamp) {
       const age = Date.now() - insightsCache.timestamp;
@@ -688,7 +682,6 @@ export default function App() {
     </div>
   );
 
-  // Account grid — now supports "wedding" as filter option
   const AccountGrid = ({ selectedId, onSelect, filter="all", label }) => {
     let accounts;
     if (filter === "asset") accounts = ASSET_ACCOUNTS;
@@ -726,7 +719,7 @@ export default function App() {
   const wfDone = (wf.total || 0) >= (wf.goal || 60000);
 
   return (
-    <div style={{minHeight:"100vh",background:t.BG,color:t.W,fontFamily:"'Courier New',monospace",paddingBottom:60,transition:"background 0.3s, color 0.3s"}}>
+    <div style={{minHeight:"100vh",background:t.BG,color:t.W,fontFamily:"'Courier New',monospace",paddingBottom:80,transition:"background 0.3s, color 0.3s"}}>
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
         ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#334155;border-radius:2px}
@@ -782,26 +775,6 @@ export default function App() {
             <div style={{fontSize:10,color:"#fb923c",fontWeight:700}}>⚠️ Memory-only mode — use EXPORT to backup.</div>
           </div>
         )}
-
-        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4,marginBottom:12}}>
-          {[
-            {id:"dashboard",icon:"📊",label:"HOME"},
-            {id:"log",      icon:"➕",label:"LOG"},
-            {id:"mattbot", icon:"🤖",label:"MATT"},
-            {id:"accounts", icon:"🏦",label:"ACCTS"},
-            {id:"history",  icon:"📋",label:"HIST"},
-          ].map(({id,icon,label})=>(
-            <button key={id} onClick={()=>setScreen(id)} className="btn" style={{
-              background:screen===id?(theme==="dark"?"rgba(52,211,153,0.12)":"rgba(5,150,105,0.1)"):t.CARD,
-              border:`1px solid ${screen===id?t.G:t.BORDER}`,
-              borderRadius:10,padding:"7px 3px",
-              color:screen===id?t.G:t.W,
-              fontSize:9,letterSpacing:"0.06em",
-            }}>
-              <div style={{fontSize:14,marginBottom:1}}>{icon}</div>{label}
-            </button>
-          ))}
-        </div>
 
         {/* ══ DASHBOARD ══ */}
         {screen==="dashboard"&&(
@@ -884,7 +857,7 @@ export default function App() {
               );
             })()}
 
-            {/* ═══ WEDDING FUND SUB-GOAL ═══ NEW! */}
+            {/* WEDDING FUND SUB-GOAL */}
             <div style={{
               background: wfDone
                 ? (theme==="dark"?"rgba(52,211,153,0.08)":"rgba(5,150,105,0.06)")
@@ -904,7 +877,6 @@ export default function App() {
                 <div style={{height:"100%",width:`${wfPct}%`,background:wfDone?`linear-gradient(90deg,${t.G},#4ade80)`:"linear-gradient(90deg,#e879f9,#f472b6)",borderRadius:4,transition:"width 0.8s"}}/>
               </div>
               
-              {/* Contribution breakdown */}
               <div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:10,padding:"6px 0",borderTop:`1px solid ${t.BORDER}`,borderBottom:`1px solid ${t.BORDER}`}}>
                 <div>
                   <span style={{color:t.S}}>You: </span>
@@ -920,7 +892,6 @@ export default function App() {
                 </div>
               </div>
               
-              {/* Log Nic's Contribution */}
               {showNicInput ? (
                 <div style={{display:"flex",gap:6}}>
                   <input
@@ -1113,7 +1084,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ══ MATT-BOT (unchanged from v12) ══ */}
+        {/* ══ MATT-BOT ══ */}
         {screen==="mattbot"&&(
           <div className="slide">
             <div style={{textAlign:"center",padding:"10px 0 16px"}}>
@@ -1289,13 +1260,13 @@ export default function App() {
 
             <div style={{fontSize:11,color:t.W,fontWeight:700,marginBottom:6}}>💰 ASSETS</div>
             {ASSET_ACCOUNTS.map(acc=>(
-              <div key={acc.id} style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:10,padding:"10px 12px",marginBottom:6}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                    <span style={{fontSize:18}}>{acc.icon}</span>
+              <div key={acc.id} style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:10,padding:"12px 14px",marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                    <span style={{fontSize:22}}>{acc.icon}</span>
                     <div>
-                      <div style={{fontSize:11,color:t.W,fontWeight:700}}>{acc.label}</div>
-                      <div style={{fontSize:9,color:t.S}}>Current: <span style={{color:acc.color,fontWeight:700}}>${fmt(assets[acc.id]||0)}</span></div>
+                      <div style={{fontSize:13,color:t.W,fontWeight:700}}>{acc.label}</div>
+                      <div style={{fontSize:11,color:t.S,marginTop:2}}>Current: <span style={{color:acc.color,fontWeight:700,fontSize:15}}>${fmt(assets[acc.id]||0)}</span></div>
                     </div>
                   </div>
                 </div>
@@ -1304,14 +1275,14 @@ export default function App() {
             ))}
 
             {/* Wedding Fund special card in accounts */}
-            <div style={{background:theme==="dark"?"rgba(232,121,249,0.06)":"rgba(192,38,211,0.04)",border:`1px solid #e879f940`,borderRadius:10,padding:"10px 12px",marginBottom:6,marginTop:10}}>
+            <div style={{background:theme==="dark"?"rgba(232,121,249,0.06)":"rgba(192,38,211,0.04)",border:`1px solid #e879f940`,borderRadius:10,padding:"12px 14px",marginBottom:8,marginTop:10}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                  <span style={{fontSize:18}}>💒</span>
+                <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                  <span style={{fontSize:22}}>💒</span>
                   <div>
-                    <div style={{fontSize:11,color:t.W,fontWeight:700}}>Wedding Fund</div>
-                    <div style={{fontSize:9,color:t.S}}>Total: <span style={{color:"#e879f9",fontWeight:700}}>${fmt(wf.total||0)}</span></div>
-                    <div style={{fontSize:9,color:t.S,marginTop:1}}>You: <span style={{color:t.G,fontWeight:700}}>${fmt(wf.mattContrib||0)}</span> · Nic: <span style={{color:"#e879f9",fontWeight:700}}>${fmt(wf.nicContrib||0)}</span></div>
+                    <div style={{fontSize:13,color:t.W,fontWeight:700}}>Wedding Fund</div>
+                    <div style={{fontSize:11,color:t.S,marginTop:2}}>Total: <span style={{color:"#e879f9",fontWeight:700,fontSize:15}}>${fmt(wf.total||0)}</span></div>
+                    <div style={{fontSize:10,color:t.S,marginTop:3}}>You: <span style={{color:t.G,fontWeight:700}}>${fmt(wf.mattContrib||0)}</span> · Nic: <span style={{color:"#e879f9",fontWeight:700}}>${fmt(wf.nicContrib||0)}</span></div>
                   </div>
                 </div>
               </div>
@@ -1320,13 +1291,13 @@ export default function App() {
 
             <div style={{fontSize:11,color:t.R,fontWeight:700,margin:"14px 0 6px"}}>💳 DEBTS</div>
             {DEBT_ACCOUNTS.map(acc=>(
-              <div key={acc.id} style={{background:theme==="dark"?"rgba(248,113,113,0.04)":"rgba(220,38,38,0.03)",border:`1px solid ${t.R}26`,borderRadius:10,padding:"10px 12px",marginBottom:6}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                    <span style={{fontSize:18}}>{acc.icon}</span>
+              <div key={acc.id} style={{background:theme==="dark"?"rgba(248,113,113,0.04)":"rgba(220,38,38,0.03)",border:`1px solid ${t.R}26`,borderRadius:10,padding:"12px 14px",marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                    <span style={{fontSize:22}}>{acc.icon}</span>
                     <div>
-                      <div style={{fontSize:11,color:t.W,fontWeight:700}}>{acc.label}</div>
-                      <div style={{fontSize:9,color:t.S}}>Owed: <span style={{color:t.R,fontWeight:700}}>${fmt(debts[acc.id]||0)}</span></div>
+                      <div style={{fontSize:13,color:t.W,fontWeight:700}}>{acc.label}</div>
+                      <div style={{fontSize:11,color:t.S,marginTop:2}}>Owed: <span style={{color:t.R,fontWeight:700,fontSize:15}}>${fmt(debts[acc.id]||0)}</span></div>
                     </div>
                   </div>
                 </div>
@@ -1362,6 +1333,33 @@ export default function App() {
           </div>
         )}
 
+      </div>
+
+      {/* ══ FIXED BOTTOM NAV ══ */}
+      <div style={{
+        position:"fixed", bottom:0, left:0, right:0, zIndex:100,
+        background:t.headerBg, borderTop:`1px solid ${t.BORDER}`,
+        padding:"8px 12px", backdropFilter:"blur(12px)",
+      }}>
+        <div style={{maxWidth:500,margin:"0 auto",display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
+          {[
+            {id:"dashboard",icon:"📊",label:"HOME"},
+            {id:"log",      icon:"➕",label:"LOG"},
+            {id:"mattbot", icon:"🤖",label:"MATT"},
+            {id:"accounts", icon:"🏦",label:"ACCTS"},
+            {id:"history",  icon:"📋",label:"HIST"},
+          ].map(({id,icon,label})=>(
+            <button key={id} onClick={()=>setScreen(id)} className="btn" style={{
+              background:screen===id?(theme==="dark"?"rgba(52,211,153,0.12)":"rgba(5,150,105,0.1)"):t.CARD,
+              border:`1px solid ${screen===id?t.G:t.BORDER}`,
+              borderRadius:10,padding:"7px 3px",
+              color:screen===id?t.G:t.W,
+              fontSize:9,letterSpacing:"0.06em",
+            }}>
+              <div style={{fontSize:14,marginBottom:1}}>{icon}</div>{label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
