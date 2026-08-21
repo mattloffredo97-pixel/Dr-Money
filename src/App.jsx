@@ -41,10 +41,8 @@ const CATEGORIES = {
 // ═══ DISCRETIONARY BUDGET CONFIG ═══
 const DISCRETIONARY_BUDGET = 1733;
 const FIXED_CATEGORIES = ["Rent", "Utilities", "Subscriptions"];
-// One-time prorated budget for launch month (we're already 3/4 through August)
-const MONTH_BUDGET_OVERRIDES = {
-  "2026-08": 400,
-};
+// Optional per-month budget overrides (empty by default; every month uses $1,733)
+const MONTH_BUDGET_OVERRIDES = {};
 const getBaseBudget = (monthKey) => MONTH_BUDGET_OVERRIDES[monthKey] ?? DISCRETIONARY_BUDGET;
 
 const CATEGORY_COLORS = {
