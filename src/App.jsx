@@ -38,6 +38,15 @@ const CATEGORIES = {
   expense: ["Food","Rent","Entertainment","Transport","Shopping","Subscriptions","Medical","Utilities","Gas","Other"],
 };
 
+// ═══ DISCRETIONARY BUDGET CONFIG ═══
+const DISCRETIONARY_BUDGET = 1733;
+const FIXED_CATEGORIES = ["Rent", "Utilities", "Subscriptions"];
+// One-time prorated budget for launch month (we're already 3/4 through August)
+const MONTH_BUDGET_OVERRIDES = {
+  "2026-08": 400,
+};
+const getBaseBudget = (monthKey) => MONTH_BUDGET_OVERRIDES[monthKey] ?? DISCRETIONARY_BUDGET;
+
 const CATEGORY_COLORS = {
   Food: "#34d399", Rent: "#60a5fa", Entertainment: "#f472b6",
   Transport: "#fbbf24", Shopping: "#a78bfa", Subscriptions: "#38bdf8",
@@ -48,11 +57,9 @@ const CATEGORY_COLORS = {
   Childcare: "#fb7185", "Home Improvement": "#a3e635",
 };
 
-// Generate consistent color for any category (including AI-invented ones)
 const FALLBACK_PALETTE = ["#60a5fa","#34d399","#fbbf24","#f472b6","#a78bfa","#fb923c","#38bdf8","#f87171","#4ade80","#facc15","#c084fc","#84cc16","#06b6d4","#ec4899","#10b981"];
 const colorForCategory = (name) => {
   if (CATEGORY_COLORS[name]) return CATEGORY_COLORS[name];
-  // Hash the category name to a stable color
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash) + name.charCodeAt(i);
   return FALLBACK_PALETTE[Math.abs(hash) % FALLBACK_PALETTE.length];
@@ -89,6 +96,7 @@ const EMOJI_HINTS = {
 };
 
 const todayStr = () => new Date().toISOString().split("T")[0];
+const thisMonthStr = () => todayStr().slice(0,7);
 const fmt  = n => (+(n??0)).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmt0 = n => (+(n??0)).toLocaleString("en-US",{maximumFractionDigits:0});
 const fmtK = n => n>=1000000?`$${(n/1000000).toFixed(2)}M`:n>=1000?`$${(n/1000).toFixed(1)}k`:`$${fmt(n)}`;
@@ -104,6 +112,21 @@ const getEmojiForWord = (word) => {
   return "📝";
 };
 
+// Get next month name for the "resets [Month] 1" message
+const nextMonthName = () => {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 1);
+  return d.toLocaleDateString("en-US", { month: "long" });
+};
+
+// Get month key for N months ago (0 = this month, 1 = last month, etc.)
+const monthKeyOffset = (offset) => {
+  const d = new Date();
+  d.setDate(1); // avoid month-end rollover issues
+  d.setMonth(d.getMonth() - offset);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+};
+
 const SKEY = "drMoneyV12";
 
 const EMPTY = {
@@ -114,8 +137,9 @@ const EMPTY = {
   balHistory: [],
   streak:0, lastLog:null,
   theme: "dark",
-  insightsCache: null,  // {data, timestamp}
-  chatHistory: [],      // user/assistant message pairs
+  insightsCache: null,
+  chatHistory: [],
+  budgetStartMonth: null,  // Set to current month on first load; earlier months don't roll over
 };
 
 const hasLS = (() => { try { localStorage.setItem("__t","1"); localStorage.removeItem("__t"); return true; } catch { return false; } })();
@@ -177,7 +201,6 @@ const THEMES = {
 const CACHE_HOURS = 6;
 const CACHE_MS = CACHE_HOURS * 60 * 60 * 1000;
 
-// ─── HORIZONTAL BAR CHART (CATEGORY BREAKDOWN) ────────────────────────────────
 function CategoryBarChart({ data, t, theme, onBarClick }) {
   if (!data || data.length === 0) return null;
   const max = Math.max(...data.map(d => d.value));
@@ -187,14 +210,7 @@ function CategoryBarChart({ data, t, theme, onBarClick }) {
         const pct = max > 0 ? (d.value / max) * 100 : 0;
         const color = colorForCategory(d.label);
         return (
-          <button
-            key={i}
-            onClick={() => onBarClick && onBarClick(d.label)}
-            className="btn"
-            style={{
-              background:"transparent", border:"none", padding:0,
-              textAlign:"left", width:"100%", cursor: onBarClick ? "pointer" : "default",
-            }}>
+          <button key={i} onClick={() => onBarClick && onBarClick(d.label)} className="btn" style={{background:"transparent",border:"none",padding:0,textAlign:"left",width:"100%",cursor: onBarClick ? "pointer" : "default"}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
               <span style={{fontSize:11,color:t.W,fontWeight:600}}>{d.label}</span>
               <span style={{fontSize:11,color:color,fontWeight:700}}>${fmt0(d.value)}</span>
@@ -209,178 +225,63 @@ function CategoryBarChart({ data, t, theme, onBarClick }) {
   );
 }
 
-// ─── LINE CHART (TREND OVER TIME) ─────────────────────────────────────────────
 function LineChart({ data, t, theme, height=120 }) {
   if (!data || data.length < 2) return <div style={{padding:24,textAlign:"center",fontSize:11,color:t.S,fontStyle:"italic"}}>Need more data to show this chart 📊</div>;
-  
   const width = 280;
   const padding = { top: 10, right: 10, bottom: 24, left: 36 };
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
-  
   const maxVal = Math.max(...data.flatMap(d => [d.income || 0, d.expense || 0]));
   const minVal = 0;
-  
   const xStep = chartW / Math.max(data.length - 1, 1);
-  
-  const incomePoints = data.map((d, i) => ({
-    x: padding.left + i * xStep,
-    y: padding.top + chartH - ((d.income - minVal) / (maxVal - minVal || 1)) * chartH,
-  }));
-  
-  const expensePoints = data.map((d, i) => ({
-    x: padding.left + i * xStep,
-    y: padding.top + chartH - ((d.expense - minVal) / (maxVal - minVal || 1)) * chartH,
-  }));
-  
+  const incomePoints = data.map((d, i) => ({x: padding.left + i * xStep, y: padding.top + chartH - ((d.income - minVal) / (maxVal - minVal || 1)) * chartH}));
+  const expensePoints = data.map((d, i) => ({x: padding.left + i * xStep, y: padding.top + chartH - ((d.expense - minVal) / (maxVal - minVal || 1)) * chartH}));
   const incomePath = incomePoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
   const expensePath = expensePoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-  
   return (
     <svg viewBox={`0 0 ${width} ${height}`} style={{width:"100%",height:"auto",display:"block"}}>
       <defs>
-        <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={t.G} stopOpacity="0.4"/>
-          <stop offset="100%" stopColor={t.G} stopOpacity="0"/>
-        </linearGradient>
-        <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={t.R} stopOpacity="0.4"/>
-          <stop offset="100%" stopColor={t.R} stopOpacity="0"/>
-        </linearGradient>
+        <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={t.G} stopOpacity="0.4"/><stop offset="100%" stopColor={t.G} stopOpacity="0"/></linearGradient>
+        <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={t.R} stopOpacity="0.4"/><stop offset="100%" stopColor={t.R} stopOpacity="0"/></linearGradient>
       </defs>
-      
-      {/* Grid lines */}
-      {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
-        <line key={i}
-          x1={padding.left} y1={padding.top + chartH * p}
-          x2={width - padding.right} y2={padding.top + chartH * p}
-          stroke={t.chartGrid} strokeWidth="0.5"/>
-      ))}
-      
-      {/* Y-axis labels */}
-      {[0, 0.5, 1].map((p, i) => (
-        <text key={i}
-          x={padding.left - 4} y={padding.top + chartH * (1 - p) + 3}
-          fontSize="8" fill={t.S} textAnchor="end" fontFamily="monospace">
-          ${fmt0(maxVal * p)}
-        </text>
-      ))}
-      
-      {/* Income area fill */}
-      <path d={`${incomePath} L ${incomePoints[incomePoints.length-1].x} ${padding.top + chartH} L ${incomePoints[0].x} ${padding.top + chartH} Z`}
-        fill="url(#incomeGrad)"/>
-      
-      {/* Expense area fill */}
-      <path d={`${expensePath} L ${expensePoints[expensePoints.length-1].x} ${padding.top + chartH} L ${expensePoints[0].x} ${padding.top + chartH} Z`}
-        fill="url(#expenseGrad)"/>
-      
-      {/* Income line */}
+      {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (<line key={i} x1={padding.left} y1={padding.top + chartH * p} x2={width - padding.right} y2={padding.top + chartH * p} stroke={t.chartGrid} strokeWidth="0.5"/>))}
+      {[0, 0.5, 1].map((p, i) => (<text key={i} x={padding.left - 4} y={padding.top + chartH * (1 - p) + 3} fontSize="8" fill={t.S} textAnchor="end" fontFamily="monospace">${fmt0(maxVal * p)}</text>))}
+      <path d={`${incomePath} L ${incomePoints[incomePoints.length-1].x} ${padding.top + chartH} L ${incomePoints[0].x} ${padding.top + chartH} Z`} fill="url(#incomeGrad)"/>
+      <path d={`${expensePath} L ${expensePoints[expensePoints.length-1].x} ${padding.top + chartH} L ${expensePoints[0].x} ${padding.top + chartH} Z`} fill="url(#expenseGrad)"/>
       <path d={incomePath} fill="none" stroke={t.G} strokeWidth="2" filter={`drop-shadow(0 0 4px ${t.G}88)`}/>
-      
-      {/* Expense line */}
       <path d={expensePath} fill="none" stroke={t.R} strokeWidth="2" filter={`drop-shadow(0 0 4px ${t.R}88)`}/>
-      
-      {/* Income points */}
-      {incomePoints.map((p, i) => (
-        <circle key={`i-${i}`} cx={p.x} cy={p.y} r="2.5" fill={t.G} stroke={t.BG} strokeWidth="1"/>
-      ))}
-      
-      {/* Expense points */}
-      {expensePoints.map((p, i) => (
-        <circle key={`e-${i}`} cx={p.x} cy={p.y} r="2.5" fill={t.R} stroke={t.BG} strokeWidth="1"/>
-      ))}
-      
-      {/* X-axis labels */}
-      {data.map((d, i) => (
-        i % Math.ceil(data.length / 4) === 0 || i === data.length - 1 ? (
-          <text key={i}
-            x={padding.left + i * xStep} y={height - 6}
-            fontSize="8" fill={t.S} textAnchor="middle" fontFamily="monospace">
-            {d.month.slice(5)}
-          </text>
-        ) : null
-      ))}
+      {incomePoints.map((p, i) => (<circle key={`i-${i}`} cx={p.x} cy={p.y} r="2.5" fill={t.G} stroke={t.BG} strokeWidth="1"/>))}
+      {expensePoints.map((p, i) => (<circle key={`e-${i}`} cx={p.x} cy={p.y} r="2.5" fill={t.R} stroke={t.BG} strokeWidth="1"/>))}
+      {data.map((d, i) => (i % Math.ceil(data.length / 4) === 0 || i === data.length - 1 ? (<text key={i} x={padding.left + i * xStep} y={height - 6} fontSize="8" fill={t.S} textAnchor="middle" fontFamily="monospace">{d.month.slice(5)}</text>) : null))}
     </svg>
   );
 }
 
-// ─── TRAJECTORY PROJECTION CHART ──────────────────────────────────────────────
 function ProjectionChart({ currentNW, targetNW, monthlySavings, t, theme, monthsToGoal }) {
-  const width = 280;
-  const height = 120;
+  const width = 280, height = 120;
   const padding = { top: 10, right: 10, bottom: 24, left: 36 };
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
-  
-  if (monthlySavings <= 0) {
-    return <div style={{padding:24,textAlign:"center",fontSize:11,color:t.S,fontStyle:"italic"}}>Save more than you spend to see projection 📈</div>;
-  }
-  
-  // Build trajectory points: today + projected months
+  if (monthlySavings <= 0) return <div style={{padding:24,textAlign:"center",fontSize:11,color:t.S,fontStyle:"italic"}}>Save more than you spend to see projection 📈</div>;
   const totalMonths = Math.min(monthsToGoal + 3, 60);
   const points = [];
   for (let i = 0; i <= totalMonths; i++) {
     const value = currentNW + (monthlySavings * i);
-    points.push({
-      x: padding.left + (i / totalMonths) * chartW,
-      y: padding.top + chartH - ((value / targetNW) * chartH),
-      value,
-      month: i,
-    });
+    points.push({x: padding.left + (i / totalMonths) * chartW, y: padding.top + chartH - ((value / targetNW) * chartH), value, month: i});
   }
-  
   const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${Math.max(p.y, padding.top)}`).join(' ');
-  
-  // Find the point where we cross targetNW
-  const targetY = padding.top + chartH - chartH;  // top of chart
-  
+  const targetY = padding.top;
   return (
     <svg viewBox={`0 0 ${width} ${height}`} style={{width:"100%",height:"auto",display:"block"}}>
-      <defs>
-        <linearGradient id="trajGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={t.Y} stopOpacity="0.5"/>
-          <stop offset="100%" stopColor={t.G} stopOpacity="0"/>
-        </linearGradient>
-      </defs>
-      
-      {/* Grid lines */}
-      {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
-        <line key={i}
-          x1={padding.left} y1={padding.top + chartH * p}
-          x2={width - padding.right} y2={padding.top + chartH * p}
-          stroke={t.chartGrid} strokeWidth="0.5"/>
-      ))}
-      
-      {/* Target line */}
-      <line
-        x1={padding.left} y1={targetY}
-        x2={width - padding.right} y2={targetY}
-        stroke={t.Y} strokeWidth="1" strokeDasharray="3,3" opacity="0.6"/>
-      <text x={width - padding.right - 4} y={targetY - 3} fontSize="8" fill={t.Y} textAnchor="end" fontFamily="monospace">
-        ${fmt0(targetNW)}
-      </text>
-      
-      {/* Y-axis labels */}
-      {[0, 1].map((p, i) => (
-        <text key={i}
-          x={padding.left - 4} y={padding.top + chartH * (1 - p) + 3}
-          fontSize="8" fill={t.S} textAnchor="end" fontFamily="monospace">
-          ${fmt0(targetNW * p)}
-        </text>
-      ))}
-      
-      {/* Trajectory area */}
-      <path d={`${path} L ${points[points.length-1].x} ${padding.top + chartH} L ${points[0].x} ${padding.top + chartH} Z`}
-        fill="url(#trajGrad)"/>
-      
-      {/* Trajectory line */}
+      <defs><linearGradient id="trajGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={t.Y} stopOpacity="0.5"/><stop offset="100%" stopColor={t.G} stopOpacity="0"/></linearGradient></defs>
+      {[0, 0.25, 0.5, 0.75, 1].map((p, i) => <line key={i} x1={padding.left} y1={padding.top + chartH * p} x2={width - padding.right} y2={padding.top + chartH * p} stroke={t.chartGrid} strokeWidth="0.5"/>)}
+      <line x1={padding.left} y1={targetY} x2={width - padding.right} y2={targetY} stroke={t.Y} strokeWidth="1" strokeDasharray="3,3" opacity="0.6"/>
+      <text x={width - padding.right - 4} y={targetY - 3} fontSize="8" fill={t.Y} textAnchor="end" fontFamily="monospace">${fmt0(targetNW)}</text>
+      {[0, 1].map((p, i) => (<text key={i} x={padding.left - 4} y={padding.top + chartH * (1 - p) + 3} fontSize="8" fill={t.S} textAnchor="end" fontFamily="monospace">${fmt0(targetNW * p)}</text>))}
+      <path d={`${path} L ${points[points.length-1].x} ${padding.top + chartH} L ${points[0].x} ${padding.top + chartH} Z`} fill="url(#trajGrad)"/>
       <path d={path} fill="none" stroke={`url(#trajGrad)`} strokeWidth="2"/>
       <path d={path} fill="none" stroke={t.G} strokeWidth="2" filter={`drop-shadow(0 0 6px ${t.G}aa)`}/>
-      
-      {/* Current point */}
       <circle cx={points[0].x} cy={points[0].y} r="4" fill={t.G} stroke={t.BG} strokeWidth="2"/>
-      
-      {/* X-axis labels */}
       <text x={padding.left} y={height - 6} fontSize="8" fill={t.S} textAnchor="start" fontFamily="monospace">Now</text>
       <text x={width - padding.right} y={height - 6} fontSize="8" fill={t.S} textAnchor="end" fontFamily="monospace">{totalMonths}mo</text>
     </svg>
@@ -401,21 +302,13 @@ export default function App() {
     fromAccount:"checking", toAccount:"checking"
   });
   const [isCategorizing, setCategorizing] = useState(false);
-  
-  // 🪩 STRIPPER POLE ANIMATION — fires on income logging
-  const [poleAnimation, setPoleAnimation] = useState(null); // { amount } or null
-  
-  // Matt-bot state
+  const [poleAnimation, setPoleAnimation] = useState(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState("");
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
-
-  // NEW: Category breakdown filter + drill-down state
-  const [categoryPeriod, setCategoryPeriod] = useState("thisMonth"); // "thisMonth" | "lastMonth" | "ytd"
+  const [categoryPeriod, setCategoryPeriod] = useState("thisMonth");
   const [drilldownCategory, setDrilldownCategory] = useState(null);
-
-  // WEDDING FUND: Nic's contribution input
   const [nicAmt, setNicAmt] = useState("");
   const [showNicInput, setShowNicInput] = useState(false);
   
@@ -437,7 +330,12 @@ export default function App() {
           theme: parsed.theme || "dark",
           insightsCache: parsed.insightsCache || null,
           chatHistory: parsed.chatHistory || [],
+          // Initialize budgetStartMonth to current month on first load (fresh start)
+          budgetStartMonth: parsed.budgetStartMonth || thisMonthStr(),
         });
+      } else {
+        // No prior data — set budgetStartMonth to now
+        setData(d => ({...d, budgetStartMonth: thisMonthStr()}));
       }
       setSM(hasLS ? "persistent" : "memory");
     } catch(e) { setSM(hasLS ? "persistent" : "memory"); }
@@ -460,12 +358,11 @@ export default function App() {
   const patch = (partial) => setData(prev => ({ ...prev, ...partial }));
   const showToast = (msg, type="info") => { setToast({msg,type}); setTimeout(()=>setToast(null),4000); };
 
-  const { transactions, assets, debts, weddingFund, balHistory, streak, lastLog, theme="dark", insightsCache, chatHistory } = data;
+  const { transactions, assets, debts, weddingFund, balHistory, streak, lastLog, theme="dark", insightsCache, chatHistory, budgetStartMonth } = data;
   const t = THEMES[theme] || THEMES.dark;
 
   const totalAssets = Object.values(assets).reduce((s,v)=>s+(+v||0),0);
   const totalDebts  = Object.values(debts).reduce((s,v)=>s+(+v||0),0);
-  // Net worth = assets - debts + ONLY Matt's wedding fund contribution
   const totalNW     = totalAssets - totalDebts + (+(weddingFund?.mattContrib)||0);
   const investTotal = (+(assets.investments)||0)+(+(assets.joint_invest)||0)+(+(assets.sharkninja)||0);
   const cashTotal   = totalAssets - investTotal;
@@ -479,7 +376,6 @@ export default function App() {
   const monthIn   = monthTxns.filter(tx=>tx.type==="income").reduce((s,tx)=>s+tx.amount,0);
   const monthOut  = monthTxns.filter(tx=>tx.type==="expense").reduce((s,tx)=>s+tx.amount,0);
 
-  // ─── ANALYTICS COMPUTATIONS (Last 3 months by default, but we use 6 for chart) ──
   const monthlyStats = useMemo(() => {
     const months = [];
     const now = new Date();
@@ -496,7 +392,53 @@ export default function App() {
 
   const last3MonthsStats = monthlyStats.slice(-3);
 
-  // ─── NEW: Filtered expense list for the selected category period ──────────
+  // ═══════════════════════════════════════════════════════════════════════
+  // DISCRETIONARY BUDGET COMPUTATION
+  // ═══════════════════════════════════════════════════════════════════════
+  const discretionaryBudget = useMemo(() => {
+    const startMonth = budgetStartMonth || thisMonth;
+
+    // Helper: get discretionary spend for a given month key
+    const getDiscretionarySpend = (monthKey) => {
+      return transactions
+        .filter(tx =>
+          tx.type === "expense" &&
+          tx.date?.startsWith(monthKey) &&
+          !FIXED_CATEGORIES.includes(tx.category)
+        )
+        .reduce((s, tx) => s + tx.amount, 0);
+    };
+
+    // Walk forward from budgetStartMonth to thisMonth, computing carry-forward budget
+    // Cap at 24 iterations for safety
+    let currentBudget = getBaseBudget(startMonth);
+    let cursor = startMonth;
+    let iterations = 0;
+    while (cursor < thisMonth && iterations < 24) {
+      const spent = getDiscretionarySpend(cursor);
+      const surplus = Math.max(0, currentBudget - spent);
+      // Advance to next month
+      const [y, m] = cursor.split("-").map(Number);
+      const nextDate = new Date(y, m, 1); // m is 1-indexed; next month = m
+      cursor = `${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,"0")}`;
+      currentBudget = getBaseBudget(cursor) + surplus;
+      iterations++;
+    }
+
+    const thisMonthSpent = getDiscretionarySpend(thisMonth);
+    const remaining = currentBudget - thisMonthSpent;
+    const pctUsed = currentBudget > 0 ? (thisMonthSpent / currentBudget) * 100 : 0;
+    const isOver = thisMonthSpent > currentBudget;
+
+    return {
+      budget: currentBudget,
+      spent: thisMonthSpent,
+      remaining,
+      pctUsed,
+      isOver,
+    };
+  }, [transactions, budgetStartMonth, thisMonth]);
+
   const filteredExpenses = useMemo(() => {
     const now = new Date();
     const thisYear = now.getFullYear();
@@ -505,7 +447,6 @@ export default function App() {
     const lastMoKey = `${lastMoDate.getFullYear()}-${String(lastMoDate.getMonth()+1).padStart(2,"0")}`;
     const thisMoKey = `${thisYear}-${String(thisMo+1).padStart(2,"0")}`;
     const yearKey = String(thisYear);
-
     return transactions.filter(tx => {
       if (tx.type !== "expense") return false;
       if (!tx.date) return false;
@@ -516,41 +457,29 @@ export default function App() {
     });
   }, [transactions, categoryPeriod]);
 
-  // Category breakdown for the selected period
   const categoryBreakdown = useMemo(() => {
     const totals = {};
     filteredExpenses.forEach(t => {
       const cat = t.category || "Other";
       totals[cat] = (totals[cat] || 0) + t.amount;
     });
-    return Object.entries(totals)
-      .map(([label, value]) => ({ label, value }))
-      .sort((a,b) => b.value - a.value);
+    return Object.entries(totals).map(([label, value]) => ({ label, value })).sort((a,b) => b.value - a.value);
   }, [filteredExpenses]);
 
-  // Period totals + last month total (for pace indicator)
-  const periodTotalSpend = useMemo(() =>
-    filteredExpenses.reduce((s, tx) => s + tx.amount, 0),
-  [filteredExpenses]);
+  const periodTotalSpend = useMemo(() => filteredExpenses.reduce((s, tx) => s + tx.amount, 0), [filteredExpenses]);
 
   const lastMonthTotalSpend = useMemo(() => {
     const now = new Date();
     const lastMoDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMoKey = `${lastMoDate.getFullYear()}-${String(lastMoDate.getMonth()+1).padStart(2,"0")}`;
-    return transactions
-      .filter(tx => tx.type === "expense" && tx.date?.startsWith(lastMoKey))
-      .reduce((s, tx) => s + tx.amount, 0);
+    return transactions.filter(tx => tx.type === "expense" && tx.date?.startsWith(lastMoKey)).reduce((s, tx) => s + tx.amount, 0);
   }, [transactions]);
 
-  // Drill-down: transactions in selected category, sorted by amount descending
   const drilldownTxns = useMemo(() => {
     if (!drilldownCategory) return [];
-    return filteredExpenses
-      .filter(tx => (tx.category || "Other") === drilldownCategory)
-      .sort((a, b) => b.amount - a.amount);
+    return filteredExpenses.filter(tx => (tx.category || "Other") === drilldownCategory).sort((a, b) => b.amount - a.amount);
   }, [filteredExpenses, drilldownCategory]);
 
-  // Period label for display
   const now = new Date();
   const periodLabel = categoryPeriod === "thisMonth"
     ? now.toLocaleDateString("en-US", { month: "long" }).toUpperCase()
@@ -558,7 +487,6 @@ export default function App() {
       ? new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleDateString("en-US", { month: "long" }).toUpperCase()
       : `${now.getFullYear()} YTD`;
 
-  // Pace indicator math (only used when "This Month" is selected)
   const dayOfMonth = now.getDate();
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const pacePct = lastMonthTotalSpend > 0 ? Math.round((periodTotalSpend / lastMonthTotalSpend) * 100) : 0;
@@ -566,43 +494,28 @@ export default function App() {
   const isOverPace = pacePct > expectedPct + 5;
   const isUnderPace = pacePct < expectedPct - 5;
 
-  // YTD top categories
   const ytdCategories = useMemo(() => {
     const year = new Date().getFullYear().toString();
     const totals = {};
-    transactions
-      .filter(t => t.type === "expense" && t.date?.startsWith(year))
-      .forEach(t => {
-        const cat = t.category || "Other";
-        totals[cat] = (totals[cat] || 0) + t.amount;
-      });
-    return Object.entries(totals)
-      .map(([label, value]) => ({ label, value }))
-      .sort((a,b) => b.value - a.value)
-      .slice(0, 5);
+    transactions.filter(t => t.type === "expense" && t.date?.startsWith(year)).forEach(t => {
+      const cat = t.category || "Other";
+      totals[cat] = (totals[cat] || 0) + t.amount;
+    });
+    return Object.entries(totals).map(([label, value]) => ({ label, value })).sort((a,b) => b.value - a.value).slice(0, 5);
   }, [transactions]);
 
-  // Average monthly savings rate — uses last 3 COMPLETED months only
-  // (excludes current month because it's still in progress and would skew the average)
-  // Smart fallback: if overall average is negative but at least one month was positive,
-  // use only the positive months (your "achievable pace")
   const avgMonthlySavings = useMemo(() => {
     const completedMonths = monthlyStats.slice(0, -1);
-    // Only count months where transactions were actually logged
     const monthsWithData = completedMonths.filter(m => m.income > 0 || m.expense > 0);
     if (monthsWithData.length === 0) return 0;
     const recent = monthsWithData.slice(-3);
     const avg = recent.reduce((s, m) => s + m.net, 0) / recent.length;
     if (avg > 0) return avg;
-    // Fallback: average of positive months only — shows projection based on your good months
     const positive = recent.filter(m => m.net > 0);
-    if (positive.length > 0) {
-      return positive.reduce((s, m) => s + m.net, 0) / positive.length;
-    }
+    if (positive.length > 0) return positive.reduce((s, m) => s + m.net, 0) / positive.length;
     return 0;
   }, [monthlyStats]);
 
-  // Track what data the projection is based on (for transparent UI labeling)
   const projectionBasis = useMemo(() => {
     const completedMonths = monthlyStats.slice(0, -1);
     const monthsWithData = completedMonths.filter(m => m.income > 0 || m.expense > 0);
@@ -614,13 +527,11 @@ export default function App() {
     return { count: positive.length, isOptimistic: positive.length > 0 };
   }, [monthlyStats]);
 
-  // Projected months to next milestone
   const monthsToGoal = useMemo(() => {
     if (avgMonthlySavings <= 0) return Infinity;
     return Math.ceil((activeMilestone.target - totalNW) / avgMonthlySavings);
   }, [activeMilestone, totalNW, avgMonthlySavings]);
 
-  // Projected goal date
   const projectedDate = useMemo(() => {
     if (!isFinite(monthsToGoal)) return null;
     const d = new Date();
@@ -628,7 +539,6 @@ export default function App() {
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   }, [monthsToGoal]);
 
-  // ─── DYNAMIC PRESETS ──────────────────────────────────────────────────────
   const dynamicPresets = useMemo(() => {
     const expenseTxns = transactions.filter(tx => tx.type === "expense");
     if (expenseTxns.length < 10) return STARTER_PRESETS;
@@ -640,15 +550,9 @@ export default function App() {
       counts[key].count++;
       counts[key].lastAccount = tx.fromAccount;
     });
-    return Object.entries(counts)
-      .sort((a,b) => b[1].count - a[1].count)
-      .slice(0, 6)
-      .map(([word, info]) => ({
-        emoji: getEmojiForWord(word),
-        word,
-        category: info.category,
-        defaultAccount: info.lastAccount,
-      }));
+    return Object.entries(counts).sort((a,b) => b[1].count - a[1].count).slice(0, 6).map(([word, info]) => ({
+      emoji: getEmojiForWord(word), word, category: info.category, defaultAccount: info.lastAccount,
+    }));
   }, [transactions]);
 
   const onKey = (k) => {
@@ -680,14 +584,12 @@ export default function App() {
     } else if (tx.type === "transfer") {
       const fromAcc = getAccount(tx.fromAccount);
       const toAcc = getAccount(tx.toAccount);
-      // FROM side
       if (fromAcc?.type === "asset") newA[tx.fromAccount] = Math.max(0, (+newA[tx.fromAccount]||0) - amt);
       else if (fromAcc?.type === "debt") newD[tx.fromAccount] = (+newD[tx.fromAccount]||0) + amt;
       else if (fromAcc?.type === "wedding") {
         newW.total = Math.max(0, (+newW.total||0) - amt);
         newW.mattContrib = Math.max(0, (+newW.mattContrib||0) - amt);
       }
-      // TO side
       if (toAcc?.type === "asset") newA[tx.toAccount] = (+newA[tx.toAccount]||0) + amt;
       else if (toAcc?.type === "debt") newD[tx.toAccount] = Math.max(0, (+newD[tx.toAccount]||0) - amt);
       else if (toAcc?.type === "wedding") {
@@ -702,12 +604,7 @@ export default function App() {
   };
 
   const applyPreset = (preset) => {
-    setForm(f => ({
-      ...f,
-      description: preset.word,
-      category: preset.category,
-      fromAccount: preset.defaultAccount || f.fromAccount,
-    }));
+    setForm(f => ({...f, description: preset.word, category: preset.category, fromAccount: preset.defaultAccount || f.fromAccount}));
   };
 
   const handleExpenseSubmit = async () => {
@@ -718,18 +615,12 @@ export default function App() {
     if (matchingPreset) { logExpense(amt, matchingPreset.category, form.description.trim()); return; }
     setCategorizing(true);
     try {
-      // Gather user's existing expense categories so Matt-bot prefers reusing them
-      const existingCats = [...new Set(transactions
-        .filter(tx => tx.type === "expense" && tx.category)
-        .map(tx => tx.category))];
-      
+      const existingCats = [...new Set(transactions.filter(tx => tx.type === "expense" && tx.category).map(tx => tx.category))];
       const response = await fetch('/api/mattbot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userText: `${form.description} (amount: $${amt}, paid from ${getAccount(form.fromAccount)?.label})`,
-          accounts: ALL_ACCOUNTS, categories: CATEGORIES,
-          existingCategories: existingCats,
+          accounts: ALL_ACCOUNTS, categories: CATEGORIES, existingCategories: existingCats,
         }),
       });
       if (!response.ok) throw new Error("Matt-bot napping");
@@ -783,7 +674,6 @@ export default function App() {
     setForm(f => ({...f, amount:"", description:"", note:""}));
     if (form.type==="income") {
       showToast(getPraise(),"praise");
-      // 🪩 TRIGGER THE STRIPPER POLE ANIMATION
       setPoleAnimation({ amount: amt });
       setTimeout(() => setPoleAnimation(null), 3500);
     }
@@ -796,7 +686,6 @@ export default function App() {
     else handleIncomeTransferSubmit();
   };
 
-  // ─── LOG NIC'S CONTRIBUTION ──────────────────────────────────────────────
   const logNicContribution = () => {
     const amt = parseFloat(nicAmt);
     if (!amt || amt <= 0) { showToast("Enter a valid amount. 🙄","error"); return; }
@@ -813,33 +702,24 @@ export default function App() {
     showToast(`💒 Nic contributed $${fmt(amt)}! 💕`,"praise");
   };
 
-  // ─── PROACTIVE INSIGHTS ───────────────────────────────────────────────────
   const loadInsights = async (forceRefresh = false) => {
-    // Check cache
     if (!forceRefresh && insightsCache?.timestamp) {
       const age = Date.now() - insightsCache.timestamp;
-      if (age < CACHE_MS) {
-        return; // Cache still valid
-      }
+      if (age < CACHE_MS) return;
     }
-    
     if (transactions.length < 5) {
       setInsightsError("Need at least 5 transactions for insights. Log a few more! 📝");
       return;
     }
-    
     setInsightsLoading(true);
     setInsightsError("");
     try {
       const response = await fetch('/api/mattbot-insights', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           transactions: transactions.slice(0, 100),
-          netWorth: totalNW,
-          totalAssets, totalDebts,
-          monthlyStats,
-          activeMilestone,
+          netWorth: totalNW, totalAssets, totalDebts,
+          monthlyStats, activeMilestone,
           hysaBalance: +(assets.hysa) || 0,
         }),
       });
@@ -855,22 +735,17 @@ export default function App() {
   const sendChatMessage = async () => {
     const msg = chatInput.trim();
     if (!msg || chatLoading) return;
-    
     const newHistory = [...chatHistory, { role: "user", content: msg }];
     patch({ chatHistory: newHistory });
     setChatInput("");
     setChatLoading(true);
-    
     try {
       const response = await fetch('/api/mattbot-insights', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           transactions: transactions.slice(0, 100),
-          netWorth: totalNW,
-          totalAssets, totalDebts,
-          monthlyStats,
-          activeMilestone,
+          netWorth: totalNW, totalAssets, totalDebts,
+          monthlyStats, activeMilestone,
           hysaBalance: +(assets.hysa) || 0,
           userQuestion: msg,
         }),
@@ -890,13 +765,10 @@ export default function App() {
     setChatLoading(false);
   };
 
-  // Auto-load insights when entering MATT tab
   useEffect(() => {
     if (screen === "mattbot" && loaded && !insightsLoading) {
       const age = insightsCache?.timestamp ? Date.now() - insightsCache.timestamp : Infinity;
-      if (age >= CACHE_MS && transactions.length >= 5) {
-        loadInsights();
-      }
+      if (age >= CACHE_MS && transactions.length >= 5) loadInsights();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, loaded]);
@@ -943,6 +815,7 @@ export default function App() {
           assets: { ...EMPTY.assets, ...(parsed.assets||{}) },
           debts: { ...EMPTY.debts, ...(parsed.debts||{}) },
           weddingFund: { ...EMPTY.weddingFund, ...(parsed.weddingFund||{}) },
+          budgetStartMonth: parsed.budgetStartMonth || thisMonthStr(),
         });
         showToast("Backup restored! ✅","praise");
       } catch { showToast("Invalid backup file ❌","error"); }
@@ -1001,11 +874,17 @@ export default function App() {
 
   const insights = insightsCache?.data?.insights || [];
   const insightAge = insightsCache?.timestamp ? Math.floor((Date.now() - insightsCache.timestamp) / 60000) : null;
-
-  // Wedding fund derived values
   const wf = weddingFund || EMPTY.weddingFund;
   const wfPct = Math.min(((wf.total || 0) / (wf.goal || 60000)) * 100, 100);
   const wfDone = (wf.total || 0) >= (wf.goal || 60000);
+
+  // Discretionary budget helpers
+  const db = discretionaryBudget;
+  const dbCardColor = db.isOver ? t.R : t.G;
+  const dbBarColor = db.isOver
+    ? "linear-gradient(90deg,#f87171,#dc2626)"
+    : `linear-gradient(90deg,${t.G},#4ade80)`;
+  const dbNextMonth = nextMonthName();
 
   return (
     <div style={{minHeight:"100vh",background:t.BG,color:t.W,fontFamily:"'Courier New',monospace",paddingBottom:"calc(80px + env(safe-area-inset-bottom))",transition:"background 0.3s, color 0.3s"}}>
@@ -1035,28 +914,10 @@ export default function App() {
         @keyframes fadeIn{from{opacity:0}to{opacity:1}}
         .sheetUp{animation:sheetSlide 0.25s ease-out;}
         @keyframes sheetSlide{from{transform:translateY(100%)}to{transform:translateY(0)}}
-
-        /* 🪩 STRIPPER POLE ANIMATION */
-        @keyframes poleSlide {
-          0%   { top:-150px; transform: translateX(-50%) rotateY(0deg); }
-          15%  { top:5%;     transform: translateX(-50%) rotateY(90deg); }
-          80%  { top:60%;    transform: translateX(-50%) rotateY(720deg); }
-          100% { top:60%;    transform: translateX(-50%) rotateY(720deg); opacity:1; }
-        }
-        @keyframes moneyFall {
-          0%   { transform: translateY(-50px) rotate(0deg);   opacity:1; }
-          100% { transform: translateY(100vh) rotate(720deg); opacity:0; }
-        }
-        @keyframes poleGlow {
-          0%,100% { box-shadow:0 0 15px #fbbf24, 0 0 30px #fbbf24aa; }
-          50%     { box-shadow:0 0 25px #fbbf24, 0 0 50px #fbbf24cc; }
-        }
-        @keyframes amountPop {
-          0%   { transform: translateX(-50%) scale(0);   opacity:0; }
-          40%  { transform: translateX(-50%) scale(1.4); opacity:1; }
-          60%  { transform: translateX(-50%) scale(1);   opacity:1; }
-          100% { transform: translateX(-50%) scale(1);   opacity:1; }
-        }
+        @keyframes poleSlide { 0% { top:-150px; transform: translateX(-50%) rotateY(0deg); } 15% { top:5%; transform: translateX(-50%) rotateY(90deg); } 80% { top:60%; transform: translateX(-50%) rotateY(720deg); } 100% { top:60%; transform: translateX(-50%) rotateY(720deg); opacity:1; } }
+        @keyframes moneyFall { 0% { transform: translateY(-50px) rotate(0deg); opacity:1; } 100% { transform: translateY(100vh) rotate(720deg); opacity:0; } }
+        @keyframes poleGlow { 0%,100% { box-shadow:0 0 15px #fbbf24, 0 0 30px #fbbf24aa; } 50% { box-shadow:0 0 25px #fbbf24, 0 0 50px #fbbf24cc; } }
+        @keyframes amountPop { 0% { transform: translateX(-50%) scale(0); opacity:0; } 40% { transform: translateX(-50%) scale(1.4); opacity:1; } 60% { transform: translateX(-50%) scale(1); opacity:1; } 100% { transform: translateX(-50%) scale(1); opacity:1; } }
       `}</style>
 
       {toast&&(
@@ -1095,49 +956,27 @@ export default function App() {
           </div>
         )}
 
-        {/* NAV moved to bottom-fixed bar at end of component */}
-
-        {/* ══ MATT-BOT TAB — THE PROACTIVE DASHBOARD ═════════════════════════ */}
+        {/* ══ MATT-BOT TAB ══ */}
         {screen==="mattbot"&&(
           <div className="slide">
-            {/* Avatar header */}
             <div style={{textAlign:"center",padding:"10px 0 16px"}}>
-              <img
-                src="/matt-idle.png"
-                alt="Matt-bot"
-                className="mbBounce"
-                style={{width:140,height:"auto",maxHeight:170,objectFit:"contain",display:"block",margin:"0 auto"}}
-                onError={(e)=>{e.target.style.display="none"}}
-              />
+              <img src="/matt-idle.png" alt="Matt-bot" className="mbBounce" style={{width:140,height:"auto",maxHeight:170,objectFit:"contain",display:"block",margin:"0 auto"}} onError={(e)=>{e.target.style.display="none"}}/>
               <div style={{fontSize:14,fontWeight:900,color:t.G,marginTop:6}}>🤖 MATT-BOT</div>
-              <div style={{fontSize:10,color:t.S,marginTop:2}}>
-                {insightsLoading ? "🧠 analyzing your finances..." : "your mathematician & tutor"}
-              </div>
+              <div style={{fontSize:10,color:t.S,marginTop:2}}>{insightsLoading ? "🧠 analyzing your finances..." : "your mathematician & tutor"}</div>
             </div>
 
-            {/* PROACTIVE INSIGHTS */}
             {insights.length > 0 && (
               <div style={{marginBottom:14}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                   <div className="lbl">💡 MATT-BOT NOTICED</div>
-                  <button onClick={()=>loadInsights(true)} disabled={insightsLoading} className="btn" style={{
-                    background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:14,
-                    padding:"3px 8px",color:t.S,fontSize:9,fontWeight:700,
-                  }}>
+                  <button onClick={()=>loadInsights(true)} disabled={insightsLoading} className="btn" style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:14,padding:"3px 8px",color:t.S,fontSize:9,fontWeight:700}}>
                     {insightsLoading?<span className="spin">🔄</span>:"🔄"} REFRESH
                   </button>
                 </div>
                 {insights.map((insight, i) => {
-                  const accent = insight.type === "alert" ? t.R :
-                                insight.type === "praise" ? t.G :
-                                insight.type === "projection" ? t.B : t.Y;
+                  const accent = insight.type === "alert" ? t.R : insight.type === "praise" ? t.G : insight.type === "projection" ? t.B : t.Y;
                   return (
-                    <div key={i} className="insightCard slide" style={{
-                      background: `linear-gradient(135deg, ${accent}1a, ${accent}08)`,
-                      border: `1px solid ${accent}40`,
-                      borderRadius: 12, padding: "12px 14px", marginBottom: 8,
-                      animationDelay: `${i * 0.1}s`,
-                    }}>
+                    <div key={i} className="insightCard slide" style={{background: `linear-gradient(135deg, ${accent}1a, ${accent}08)`,border: `1px solid ${accent}40`,borderRadius: 12, padding: "12px 14px", marginBottom: 8,animationDelay: `${i * 0.1}s`}}>
                       <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
                         <div style={{fontSize:24,lineHeight:1}}>{insight.icon}</div>
                         <div style={{flex:1}}>
@@ -1183,13 +1022,7 @@ export default function App() {
                       : `Based on last ${projectionBasis.count} month${projectionBasis.count===1?"":"s"} avg · $${fmt0(avgMonthlySavings)}/mo`}
                   </div>
                   <div style={{marginTop:10}}>
-                    <ProjectionChart
-                      currentNW={totalNW}
-                      targetNW={activeMilestone.target}
-                      monthlySavings={avgMonthlySavings}
-                      monthsToGoal={monthsToGoal}
-                      t={t} theme={theme}
-                    />
+                    <ProjectionChart currentNW={totalNW} targetNW={activeMilestone.target} monthlySavings={avgMonthlySavings} monthsToGoal={monthsToGoal} t={t} theme={theme}/>
                   </div>
                 </>
               ) : (
@@ -1197,7 +1030,7 @@ export default function App() {
               )}
             </div>
 
-            {/* INCOME VS EXPENSES OVER TIME */}
+            {/* INCOME VS EXPENSES */}
             <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow:t.aeroShadow}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <div className="lbl">📈 INCOME VS EXPENSES</div>
@@ -1209,58 +1042,67 @@ export default function App() {
               <LineChart data={monthlyStats} t={t} theme={theme}/>
             </div>
 
-            {/* ════ NEW CATEGORY BREAKDOWN (FILTERED + DRILL-DOWN) ════ */}
+            {/* ═══ NEW: DISCRETIONARY BUDGET CARD ═══ */}
+            <div style={{
+              background:`linear-gradient(135deg, ${dbCardColor}22, ${dbCardColor}08)`,
+              border:`1px solid ${dbCardColor}40`,
+              borderRadius:12,
+              padding:"14px",
+              marginBottom:12,
+              boxShadow:t.aeroShadow,
+            }}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div className="lbl" style={{margin:0,color:dbCardColor}}>🎯 DISCRETIONARY BUDGET</div>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:26,color:t.W,fontWeight:900,letterSpacing:"-0.02em",lineHeight:1}}>${fmt0(db.spent)}</div>
+                  <div style={{fontSize:10,color:t.S,marginTop:3}}>of ${fmt0(db.budget)} budget</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:22,color:dbCardColor,fontWeight:900,lineHeight:1}}>{db.pctUsed.toFixed(0)}%</div>
+                  <div style={{fontSize:9,color:t.S}}>used</div>
+                </div>
+              </div>
+              <div style={{height:10,background:theme==="dark"||theme==="aero"?"rgba(255,255,255,0.08)":"rgba(15,23,42,0.08)",borderRadius:5,overflow:"hidden",marginBottom:8}}>
+                <div style={{
+                  height:"100%",
+                  width:`${Math.min(db.pctUsed, 100)}%`,
+                  background:dbBarColor,
+                  borderRadius:5,
+                  transition:"width 0.8s ease-out",
+                  boxShadow:`0 0 8px ${dbCardColor}66`,
+                }}/>
+              </div>
+              <div style={{fontSize:11,color:dbCardColor,fontWeight:700}}>
+                {db.isOver
+                  ? `🔴 $${fmt0(Math.abs(db.remaining))} OVER · resets ${dbNextMonth} 1`
+                  : `🟢 $${fmt0(db.remaining)} remaining`}
+              </div>
+            </div>
+
+            {/* CATEGORY BREAKDOWN */}
             <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow:t.aeroShadow}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                 <div className="lbl" style={{margin:0}}>📊 SPENDING BY CATEGORY</div>
                 <span style={{fontSize:9,color:t.S,letterSpacing:"0.14em",fontWeight:700}}>{periodLabel}</span>
               </div>
 
-              {/* Filter pills */}
               <div style={{display:"flex",gap:5,marginBottom:12}}>
-                {[
-                  { key:"thisMonth", label:"THIS MONTH" },
-                  { key:"lastMonth", label:"LAST MONTH" },
-                  { key:"ytd",       label:"YTD" },
-                ].map(opt => {
+                {[{ key:"thisMonth", label:"THIS MONTH" },{ key:"lastMonth", label:"LAST MONTH" },{ key:"ytd", label:"YTD" }].map(opt => {
                   const active = categoryPeriod === opt.key;
                   return (
-                    <button key={opt.key}
-                      onClick={() => setCategoryPeriod(opt.key)}
-                      className="btn"
-                      style={{
-                        flex:1,
-                        background: active ? `${t.G}22` : t.cardSubtle,
-                        border: `1px solid ${active ? t.G : t.BORDER}`,
-                        borderRadius: 8,
-                        padding: "7px 4px",
-                        color: active ? t.G : t.W,
-                        fontSize: 9,
-                        fontWeight: 700,
-                        letterSpacing: "0.08em",
-                      }}>
+                    <button key={opt.key} onClick={() => setCategoryPeriod(opt.key)} className="btn" style={{flex:1,background: active ? `${t.G}22` : t.cardSubtle,border: `1px solid ${active ? t.G : t.BORDER}`,borderRadius: 8,padding: "7px 4px",color: active ? t.G : t.W,fontSize: 9,fontWeight: 700,letterSpacing: "0.08em"}}>
                       {opt.label}
                     </button>
                   );
                 })}
               </div>
 
-              {/* Pace indicator (only on This Month, only if last month had spend) */}
               {categoryPeriod === "thisMonth" && lastMonthTotalSpend > 0 && (
-                <div style={{
-                  background: isOverPace ? `${t.R}1a` : isUnderPace ? `${t.G}1a` : t.cardSubtle,
-                  border: `1px solid ${isOverPace ? t.R : isUnderPace ? t.G : t.BORDER}40`,
-                  borderRadius: 9,
-                  padding: "9px 11px",
-                  marginBottom: 12,
-                  fontSize: 11,
-                  lineHeight: 1.5,
-                  color: t.W,
-                }}>
+                <div style={{background: isOverPace ? `${t.R}1a` : isUnderPace ? `${t.G}1a` : t.cardSubtle,border: `1px solid ${isOverPace ? t.R : isUnderPace ? t.G : t.BORDER}40`,borderRadius: 9,padding: "9px 11px",marginBottom: 12,fontSize: 11,lineHeight: 1.5,color: t.W}}>
                   <div>
-                    <span style={{fontWeight:700}}>Day {dayOfMonth} of {daysInMonth}</span> · spent{" "}
-                    <span style={{fontWeight:700}}>${fmt0(periodTotalSpend)}</span>
-                    {" "}({pacePct}% of last month's ${fmt0(lastMonthTotalSpend)})
+                    <span style={{fontWeight:700}}>Day {dayOfMonth} of {daysInMonth}</span> · spent <span style={{fontWeight:700}}>${fmt0(periodTotalSpend)}</span> ({pacePct}% of last month's ${fmt0(lastMonthTotalSpend)})
                   </div>
                   <div style={{fontSize:10,color:t.S,marginTop:3}}>
                     {isOverPace && "🔥 Outpacing last month. Ease up."}
@@ -1270,27 +1112,14 @@ export default function App() {
                 </div>
               )}
 
-              {/* Bar chart (clickable) */}
               {categoryBreakdown.length > 0 ? (
-                <CategoryBarChart
-                  data={categoryBreakdown}
-                  t={t}
-                  theme={theme}
-                  onBarClick={(label) => setDrilldownCategory(label)}
-                />
+                <CategoryBarChart data={categoryBreakdown} t={t} theme={theme} onBarClick={(label) => setDrilldownCategory(label)}/>
               ) : (
-                <div style={{fontSize:11,color:t.S,fontStyle:"italic",textAlign:"center",padding:14}}>
-                  No expenses logged for this period 📝
-                </div>
+                <div style={{fontSize:11,color:t.S,fontStyle:"italic",textAlign:"center",padding:14}}>No expenses logged for this period 📝</div>
               )}
 
-              {/* Period total footer */}
               {categoryBreakdown.length > 0 && (
-                <div style={{
-                  display:"flex",justifyContent:"space-between",alignItems:"center",
-                  marginTop:10,paddingTop:10,borderTop:`1px solid ${t.BORDER}`,
-                  fontSize:11,fontWeight:700,color:t.W,
-                }}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,paddingTop:10,borderTop:`1px solid ${t.BORDER}`,fontSize:11,fontWeight:700,color:t.W}}>
                   <span>TOTAL</span>
                   <span>${fmt0(periodTotalSpend)}</span>
                 </div>
@@ -1301,26 +1130,14 @@ export default function App() {
             <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow:t.aeroShadow}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <div className="lbl">💬 ASK MATT-BOT</div>
-                {chatHistory.length > 0 && (
-                  <button onClick={clearChat} className="btn" style={{background:"transparent",border:"none",color:t.S,fontSize:9,padding:0}}>clear chat</button>
-                )}
+                {chatHistory.length > 0 && (<button onClick={clearChat} className="btn" style={{background:"transparent",border:"none",color:t.S,fontSize:9,padding:0}}>clear chat</button>)}
               </div>
 
-              {/* Chat history */}
               {chatHistory.length > 0 && (
                 <div style={{maxHeight:300,overflowY:"auto",marginBottom:8,paddingRight:4}}>
                   {chatHistory.map((m, i) => (
-                    <div key={i} style={{
-                      background: m.role === "user" ? `${t.B}22` : `${t.G}14`,
-                      border: `1px solid ${m.role === "user" ? t.B : t.G}40`,
-                      borderRadius: 9, padding: "8px 11px", marginBottom: 6,
-                      maxWidth: "92%",
-                      marginLeft: m.role === "user" ? "auto" : 0,
-                      marginRight: m.role === "user" ? 0 : "auto",
-                    }}>
-                      <div style={{fontSize:8,color:t.S,marginBottom:3,fontWeight:700}}>
-                        {m.role === "user" ? "YOU" : "🤖 MATT-BOT"}
-                      </div>
+                    <div key={i} style={{background: m.role === "user" ? `${t.B}22` : `${t.G}14`,border: `1px solid ${m.role === "user" ? t.B : t.G}40`,borderRadius: 9, padding: "8px 11px", marginBottom: 6,maxWidth: "92%",marginLeft: m.role === "user" ? "auto" : 0,marginRight: m.role === "user" ? 0 : "auto"}}>
+                      <div style={{fontSize:8,color:t.S,marginBottom:3,fontWeight:700}}>{m.role === "user" ? "YOU" : "🤖 MATT-BOT"}</div>
                       <div style={{fontSize:11,color:t.W,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{m.content}</div>
                       {m.highlights && m.highlights.length > 0 && (
                         <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>
@@ -1343,45 +1160,20 @@ export default function App() {
                 </div>
               )}
 
-              {/* Sample questions if empty */}
               {chatHistory.length === 0 && (
                 <div style={{marginBottom:8}}>
                   <div style={{fontSize:10,color:t.S,marginBottom:6}}>💡 Try asking:</div>
-                  {[
-                    "How much did I spend on food this month?",
-                    "When will I hit $100K?",
-                    "What's my biggest expense category?",
-                    "Where can I cut to save more?",
-                  ].map((q, i) => (
-                    <button key={i} onClick={()=>setChatInput(q)} className="btn" style={{
-                      width:"100%",textAlign:"left",
-                      background:t.cardSubtle,border:`1px solid ${t.BORDER}`,
-                      borderRadius:7,padding:"7px 10px",marginBottom:4,
-                      color:t.S,fontSize:10,fontFamily:"inherit",
-                    }}>
+                  {["How much did I spend on food this month?","When will I hit $100K?","What's my biggest expense category?","Where can I cut to save more?"].map((q, i) => (
+                    <button key={i} onClick={()=>setChatInput(q)} className="btn" style={{width:"100%",textAlign:"left",background:t.cardSubtle,border:`1px solid ${t.BORDER}`,borderRadius:7,padding:"7px 10px",marginBottom:4,color:t.S,fontSize:10,fontFamily:"inherit"}}>
                       → {q}
                     </button>
                   ))}
                 </div>
               )}
 
-              {/* Chat input */}
               <div style={{display:"flex",gap:6}}>
-                <input
-                  type="text"
-                  placeholder="ask matt-bot anything..."
-                  value={chatInput}
-                  onChange={e=>setChatInput(e.target.value)}
-                  onKeyDown={e=>{if(e.key==="Enter") sendChatMessage()}}
-                  disabled={chatLoading}
-                  style={{flex:1}}
-                />
-                <button onClick={sendChatMessage} disabled={chatLoading || !chatInput.trim()} className="btn" style={{
-                  background: !chatInput.trim() ? t.CARD : `linear-gradient(135deg,${t.G},${t.B})`,
-                  border:"none",borderRadius:8,padding:"0 14px",
-                  color: !chatInput.trim() ? t.S : t.btnText,
-                  fontSize:13, fontWeight:900, opacity: !chatInput.trim() ? 0.5 : 1,
-                }}>
+                <input type="text" placeholder="ask matt-bot anything..." value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") sendChatMessage()}} disabled={chatLoading} style={{flex:1}}/>
+                <button onClick={sendChatMessage} disabled={chatLoading || !chatInput.trim()} className="btn" style={{background: !chatInput.trim() ? t.CARD : `linear-gradient(135deg,${t.G},${t.B})`,border:"none",borderRadius:8,padding:"0 14px",color: !chatInput.trim() ? t.S : t.btnText,fontSize:13, fontWeight:900, opacity: !chatInput.trim() ? 0.5 : 1}}>
                   {chatLoading?<span className="spin">🤖</span>:"→"}
                 </button>
               </div>
@@ -1394,36 +1186,19 @@ export default function App() {
           <div className="slide">
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:10}}>
               {[{tt:"expense", label:"💸 OUT", color:t.R},{tt:"income", label:"💰 IN", color:t.G},{tt:"transfer",label:"⇄ MOVE", color:t.B}].map(({tt,label,color})=>(
-                <button key={tt} onClick={()=>setForm(f=>({...f,type:tt,category:tt==="expense"?"Food":tt==="income"?"Salary":f.category,description:""}))} className="btn" style={{
-                  background: form.type===tt ? `${color}22` : t.CARD,
-                  border:`1px solid ${form.type===tt ? color : t.BORDER}`,
-                  borderRadius:9, padding:"9px",
-                  color:form.type===tt ? color : t.W,
-                  fontSize:11, fontWeight:700,
-                }}>{label}</button>
+                <button key={tt} onClick={()=>setForm(f=>({...f,type:tt,category:tt==="expense"?"Food":tt==="income"?"Salary":f.category,description:""}))} className="btn" style={{background: form.type===tt ? `${color}22` : t.CARD,border:`1px solid ${form.type===tt ? color : t.BORDER}`,borderRadius:9, padding:"9px",color:form.type===tt ? color : t.W,fontSize:11, fontWeight:700}}>{label}</button>
               ))}
             </div>
 
             <div style={{background:theme==="dark"?"rgba(0,0,0,0.3)":"rgba(15,23,42,0.04)",border:`1px solid ${form.type==="income"?t.G:form.type==="transfer"?t.B:t.R}40`,borderRadius:12,padding:"14px",marginBottom:8,textAlign:"right"}}>
               <div className="lbl" style={{textAlign:"left",marginBottom:2}}>AMOUNT</div>
-              <div style={{fontSize:34,fontWeight:900,color:form.type==="income"?t.G:form.type==="transfer"?t.B:t.R,lineHeight:1}}>
-                ${form.amount||"0"}
-              </div>
+              <div style={{fontSize:34,fontWeight:900,color:form.type==="income"?t.G:form.type==="transfer"?t.B:t.R,lineHeight:1}}>${form.amount||"0"}</div>
             </div>
 
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:12}}>
               {["7","8","9","4","5","6","1","2","3",".","0","⌫"].map(k=>{
                 const isAction = k==="⌫";
-                return(
-                  <button key={k} onClick={()=>onKey(k)} className="btn" style={{
-                    background: isAction
-                      ? (theme==="dark"?"rgba(248,113,113,0.1)":"rgba(220,38,38,0.06)")
-                      : t.cardSubtle,
-                    border:`1px solid ${isAction?`${t.R}40`:t.BORDER}`,
-                    borderRadius:10, padding:"14px 0",
-                    color: isAction?t.R:t.W, fontSize:20, fontWeight:700,
-                  }}>{k}</button>
-                );
+                return(<button key={k} onClick={()=>onKey(k)} className="btn" style={{background: isAction ? (theme==="dark"?"rgba(248,113,113,0.1)":"rgba(220,38,38,0.06)") : t.cardSubtle,border:`1px solid ${isAction?`${t.R}40`:t.BORDER}`,borderRadius:10, padding:"14px 0",color: isAction?t.R:t.W, fontSize:20, fontWeight:700}}>{k}</button>);
               })}
             </div>
 
@@ -1432,27 +1207,13 @@ export default function App() {
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:8}}>
                 {dynamicPresets.map((p, i) => {
                   const isSelected = form.description.toLowerCase().trim() === p.word.toLowerCase();
-                  return (
-                    <button key={i} onClick={()=>applyPreset(p)} className="btn" style={{
-                      background: isSelected ? `${t.G}22` : t.CARD,
-                      border:`1px solid ${isSelected ? t.G : t.BORDER}`,
-                      borderRadius:9, padding:"8px 4px",
-                      color: isSelected ? t.G : t.W, fontSize:10,
-                      display:"flex",flexDirection:"column",alignItems:"center",gap:2,
-                    }}>
-                      <span style={{fontSize:18}}>{p.emoji}</span>
-                      <span style={{fontSize:9,fontWeight:700}}>{p.word}</span>
-                    </button>
-                  );
+                  return (<button key={i} onClick={()=>applyPreset(p)} className="btn" style={{background: isSelected ? `${t.G}22` : t.CARD,border:`1px solid ${isSelected ? t.G : t.BORDER}`,borderRadius:9, padding:"8px 4px",color: isSelected ? t.G : t.W, fontSize:10,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                    <span style={{fontSize:18}}>{p.emoji}</span>
+                    <span style={{fontSize:9,fontWeight:700}}>{p.word}</span>
+                  </button>);
                 })}
               </div>
-              <input
-                type="text"
-                placeholder="or type: gas, lunch, amazon, doctor..."
-                value={form.description}
-                onChange={e=>setForm(f=>({...f,description:e.target.value}))}
-                style={{marginBottom:10}}
-              />
+              <input type="text" placeholder="or type: gas, lunch, amazon, doctor..." value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} style={{marginBottom:10}}/>
               <div style={{marginBottom:10}}>
                 <AccountGrid selectedId={form.fromAccount} onSelect={id=>setForm(f=>({...f,fromAccount:id}))} filter="all" label="💳 PAID FROM"/>
                 {getAccount(form.fromAccount)?.type==="debt" && (<div style={{fontSize:10,color:"#fb923c",marginTop:4,fontStyle:"italic"}}>⚠️ This adds to your {getAccount(form.fromAccount)?.label} debt</div>)}
@@ -1482,20 +1243,12 @@ export default function App() {
 
             <div style={{marginBottom:12}}><div className="lbl">DATE</div><input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}/></div>
 
-            <button onClick={handleSubmit} disabled={isCategorizing} className="btn" style={{
-              width:"100%",padding:"14px",borderRadius:12,
-              background:isCategorizing?t.CARD:form.type==="income"?`linear-gradient(135deg,${t.G},${t.B})`:form.type==="transfer"?`linear-gradient(135deg,${t.B},${t.P})`:`linear-gradient(135deg,${t.R},#fb923c)`,
-              color:isCategorizing?t.S:t.btnText,fontSize:13,fontWeight:900,letterSpacing:"0.08em",
-              opacity:isCategorizing?0.7:1,
-            }}>
-              {isCategorizing ? <><span className="spin">🤖</span> MATT-BOT IS THINKING...</> :
-               form.type==="income"?"⚡ LOG INCOME":form.type==="transfer"?"⇄ EXECUTE TRANSFER":"💸 LOG EXPENSE"}
+            <button onClick={handleSubmit} disabled={isCategorizing} className="btn" style={{width:"100%",padding:"14px",borderRadius:12,background:isCategorizing?t.CARD:form.type==="income"?`linear-gradient(135deg,${t.G},${t.B})`:form.type==="transfer"?`linear-gradient(135deg,${t.B},${t.P})`:`linear-gradient(135deg,${t.R},#fb923c)`,color:isCategorizing?t.S:t.btnText,fontSize:13,fontWeight:900,letterSpacing:"0.08em",opacity:isCategorizing?0.7:1}}>
+              {isCategorizing ? <><span className="spin">🤖</span> MATT-BOT IS THINKING...</> : form.type==="income"?"⚡ LOG INCOME":form.type==="transfer"?"⇄ EXECUTE TRANSFER":"💸 LOG EXPENSE"}
             </button>
 
             {form.type==="expense" && form.description && !dynamicPresets.find(p => p.word.toLowerCase() === form.description.toLowerCase().trim()) && (
-              <div style={{fontSize:10,color:t.S,marginTop:6,textAlign:"center",fontStyle:"italic"}}>
-                🤖 Matt-bot will categorize "{form.description}"
-              </div>
+              <div style={{fontSize:10,color:t.S,marginTop:6,textAlign:"center",fontStyle:"italic"}}>🤖 Matt-bot will categorize "{form.description}"</div>
             )}
           </div>
         )}
@@ -1503,16 +1256,7 @@ export default function App() {
         {/* ══ DASHBOARD ══ */}
         {screen==="dashboard"&&(
           <div className="slide">
-            <div style={{
-              background: theme==="aero"
-                ? "linear-gradient(135deg, rgba(52,211,153,0.18), rgba(96,165,250,0.10) 50%, rgba(167,139,250,0.06))"
-                : theme==="dark"
-                ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))"
-                : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",
-              border:`1px solid ${t.G}40`,
-              borderRadius:16,padding:"18px",marginBottom:12,
-              boxShadow: t.aeroShadow,
-            }}>
+            <div style={{background: theme==="aero" ? "linear-gradient(135deg, rgba(52,211,153,0.18), rgba(96,165,250,0.10) 50%, rgba(167,139,250,0.06))" : theme==="dark" ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))" : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",border:`1px solid ${t.G}40`,borderRadius:16,padding:"18px",marginBottom:12,boxShadow: t.aeroShadow}}>
               <div className="lbl">NET WORTH</div>
               <div style={{fontSize:32,fontWeight:900,color:t.W,letterSpacing:"-0.02em"}}>${fmt(totalNW)}</div>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:t.S,marginTop:6,marginBottom:14}}>
@@ -1544,20 +1288,11 @@ export default function App() {
                 const done=totalNW>=m.target;
                 const active=activeMilestone.target===m.target;
                 const pct = Math.min((totalNW/m.target)*100, 100);
-                return(
-                  <div key={m.target} style={{
-                    background: done ? (theme==="dark"?"rgba(52,211,153,0.1)":"rgba(5,150,105,0.08)") : active ? (theme==="dark"?"rgba(251,191,36,0.1)":"rgba(217,119,6,0.08)") : t.CARD,
-                    border: `1px solid ${done?t.G:active?t.Y:t.BORDER}`,
-                    borderRadius:12, padding:"12px 8px", textAlign:"center",
-                    boxShadow: t.aeroShadow,
-                  }}>
-                    <div style={{fontSize:22,marginBottom:2}}>{m.icon}</div>
-                    <div style={{fontSize:11,color:t.W,fontWeight:700}}>{fmtK(m.target)}</div>
-                    <div style={{fontSize:9,color:done?t.G:active?t.Y:t.S,marginTop:2,fontWeight:700}}>
-                      {done?"✅ DONE":active?"◀ CURRENT":`${pct.toFixed(0)}%`}
-                    </div>
-                  </div>
-                );
+                return(<div key={m.target} style={{background: done ? (theme==="dark"?"rgba(52,211,153,0.1)":"rgba(5,150,105,0.08)") : active ? (theme==="dark"?"rgba(251,191,36,0.1)":"rgba(217,119,6,0.08)") : t.CARD,border: `1px solid ${done?t.G:active?t.Y:t.BORDER}`,borderRadius:12, padding:"12px 8px", textAlign:"center",boxShadow: t.aeroShadow}}>
+                  <div style={{fontSize:22,marginBottom:2}}>{m.icon}</div>
+                  <div style={{fontSize:11,color:t.W,fontWeight:700}}>{fmtK(m.target)}</div>
+                  <div style={{fontSize:9,color:done?t.G:active?t.Y:t.S,marginTop:2,fontWeight:700}}>{done?"✅ DONE":active?"◀ CURRENT":`${pct.toFixed(0)}%`}</div>
+                </div>);
               })}
             </div>
 
@@ -1565,37 +1300,23 @@ export default function App() {
               const hysaBal = +(assets.hysa||0);
               const hysaPct = Math.min((hysaBal/50000)*100, 100);
               const hysaDone = hysaBal >= 50000;
-              return(
-                <div style={{
-                  background: hysaDone ? (theme==="dark"?"rgba(52,211,153,0.08)":"rgba(5,150,105,0.06)") : (theme==="dark"?"rgba(56,189,248,0.06)":"rgba(37,99,235,0.05)"),
-                  border:`1px solid ${hysaDone?t.G:"#38bdf8"}40`,
-                  borderRadius:12,padding:"12px 14px",marginBottom:10,
-                  boxShadow: t.aeroShadow,
-                }}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
-                    <div>
-                      <div className="lbl" style={{color:hysaDone?t.G:"#38bdf8"}}>🏰 HYSA SUB-GOAL</div>
-                      <div style={{fontSize:18,fontWeight:900,color:t.W,marginTop:2}}>${fmt(hysaBal)}</div>
-                      <div style={{fontSize:10,color:t.S}}>of <span style={{color:hysaDone?t.G:"#38bdf8",fontWeight:700}}>$50,000</span> target</div>
-                    </div>
-                    <div style={{fontSize:22,fontWeight:900,color:hysaDone?t.G:"#38bdf8"}}>{hysaPct.toFixed(1)}%</div>
+              return(<div style={{background: hysaDone ? (theme==="dark"?"rgba(52,211,153,0.08)":"rgba(5,150,105,0.06)") : (theme==="dark"?"rgba(56,189,248,0.06)":"rgba(37,99,235,0.05)"),border:`1px solid ${hysaDone?t.G:"#38bdf8"}40`,borderRadius:12,padding:"12px 14px",marginBottom:10,boxShadow: t.aeroShadow}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                  <div>
+                    <div className="lbl" style={{color:hysaDone?t.G:"#38bdf8"}}>🏰 HYSA SUB-GOAL</div>
+                    <div style={{fontSize:18,fontWeight:900,color:t.W,marginTop:2}}>${fmt(hysaBal)}</div>
+                    <div style={{fontSize:10,color:t.S}}>of <span style={{color:hysaDone?t.G:"#38bdf8",fontWeight:700}}>$50,000</span> target</div>
                   </div>
-                  <div style={{height:8,background:theme==="dark"?"rgba(255,255,255,0.08)":"rgba(15,23,42,0.08)",borderRadius:4,overflow:"hidden"}}>
-                    <div style={{height:"100%",width:`${hysaPct}%`,background:hysaDone?`linear-gradient(90deg,${t.G},#4ade80)`:"linear-gradient(90deg,#38bdf8,#60a5fa)",borderRadius:4,transition:"width 0.8s"}}/>
-                  </div>
+                  <div style={{fontSize:22,fontWeight:900,color:hysaDone?t.G:"#38bdf8"}}>{hysaPct.toFixed(1)}%</div>
                 </div>
-              );
+                <div style={{height:8,background:theme==="dark"?"rgba(255,255,255,0.08)":"rgba(15,23,42,0.08)",borderRadius:4,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${hysaPct}%`,background:hysaDone?`linear-gradient(90deg,${t.G},#4ade80)`:"linear-gradient(90deg,#38bdf8,#60a5fa)",borderRadius:4,transition:"width 0.8s"}}/>
+                </div>
+              </div>);
             })()}
 
-            {/* ═══ WEDDING FUND SUB-GOAL ═══ */}
-            <div style={{
-              background: wfDone
-                ? (theme==="dark"?"rgba(52,211,153,0.08)":theme==="aero"?"rgba(52,211,153,0.1)":"rgba(5,150,105,0.06)")
-                : (theme==="dark"?"rgba(232,121,249,0.08)":theme==="aero"?"rgba(232,121,249,0.1)":"rgba(192,38,211,0.05)"),
-              border:`1px solid ${wfDone?t.G:"#e879f9"}40`,
-              borderRadius:12,padding:"14px",marginBottom:12,
-              boxShadow: t.aeroShadow,
-            }}>
+            {/* WEDDING FUND SUB-GOAL */}
+            <div style={{background: wfDone ? (theme==="dark"?"rgba(52,211,153,0.08)":theme==="aero"?"rgba(52,211,153,0.1)":"rgba(5,150,105,0.06)") : (theme==="dark"?"rgba(232,121,249,0.08)":theme==="aero"?"rgba(232,121,249,0.1)":"rgba(192,38,211,0.05)"),border:`1px solid ${wfDone?t.G:"#e879f9"}40`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow: t.aeroShadow}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                 <div>
                   <div className="lbl" style={{color:wfDone?t.G:"#e879f9"}}>💒 WEDDING FUND</div>
@@ -1607,57 +1328,23 @@ export default function App() {
               <div style={{height:8,background:theme==="dark"?"rgba(255,255,255,0.08)":"rgba(15,23,42,0.08)",borderRadius:4,overflow:"hidden",marginBottom:10}}>
                 <div style={{height:"100%",width:`${wfPct}%`,background:wfDone?`linear-gradient(90deg,${t.G},#4ade80)`:"linear-gradient(90deg,#e879f9,#f472b6)",borderRadius:4,transition:"width 0.8s"}}/>
               </div>
-
-              {/* Contribution breakdown */}
               <div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:10,padding:"6px 0",borderTop:`1px solid ${t.BORDER}`,borderBottom:`1px solid ${t.BORDER}`}}>
-                <div>
-                  <span style={{color:t.S}}>You: </span>
-                  <span style={{color:t.G,fontWeight:700}}>${fmt(wf.mattContrib||0)}</span>
-                </div>
-                <div>
-                  <span style={{color:t.S}}>Nic: </span>
-                  <span style={{color:"#e879f9",fontWeight:700}}>${fmt(wf.nicContrib||0)}</span>
-                </div>
-                <div>
-                  <span style={{color:t.S}}>Remaining: </span>
-                  <span style={{color:t.W,fontWeight:700}}>${fmt(Math.max(0,(wf.goal||60000)-(wf.total||0)))}</span>
-                </div>
+                <div><span style={{color:t.S}}>You: </span><span style={{color:t.G,fontWeight:700}}>${fmt(wf.mattContrib||0)}</span></div>
+                <div><span style={{color:t.S}}>Nic: </span><span style={{color:"#e879f9",fontWeight:700}}>${fmt(wf.nicContrib||0)}</span></div>
+                <div><span style={{color:t.S}}>Remaining: </span><span style={{color:t.W,fontWeight:700}}>${fmt(Math.max(0,(wf.goal||60000)-(wf.total||0)))}</span></div>
               </div>
-
-              {/* Log Nic's Contribution */}
               {showNicInput ? (
                 <div style={{display:"flex",gap:6}}>
-                  <input
-                    type="number"
-                    placeholder="Nic's amount..."
-                    value={nicAmt}
-                    onChange={e=>setNicAmt(e.target.value)}
-                    onKeyDown={e=>{if(e.key==="Enter") logNicContribution()}}
-                    style={{flex:1,color:"#e879f9",borderColor:"#e879f966"}}
-                    autoFocus
-                  />
-                  <button onClick={logNicContribution} className="btn" style={{
-                    background:"linear-gradient(135deg,#e879f9,#f472b6)",borderRadius:8,padding:"0 14px",
-                    color:t.btnText,fontSize:12,fontWeight:700,
-                  }}>ADD</button>
-                  <button onClick={()=>{setShowNicInput(false);setNicAmt("")}} className="btn" style={{
-                    background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:8,padding:"0 12px",
-                    color:t.S,fontSize:12,
-                  }}>✕</button>
+                  <input type="number" placeholder="Nic's amount..." value={nicAmt} onChange={e=>setNicAmt(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") logNicContribution()}} style={{flex:1,color:"#e879f9",borderColor:"#e879f966"}} autoFocus/>
+                  <button onClick={logNicContribution} className="btn" style={{background:"linear-gradient(135deg,#e879f9,#f472b6)",borderRadius:8,padding:"0 14px",color:t.btnText,fontSize:12,fontWeight:700}}>ADD</button>
+                  <button onClick={()=>{setShowNicInput(false);setNicAmt("")}} className="btn" style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:8,padding:"0 12px",color:t.S,fontSize:12}}>✕</button>
                 </div>
               ) : (
-                <button onClick={()=>setShowNicInput(true)} className="btn" style={{
-                  width:"100%",background:theme==="dark"?"rgba(232,121,249,0.1)":theme==="aero"?"rgba(232,121,249,0.14)":"rgba(192,38,211,0.08)",
-                  border:`1px solid #e879f940`,borderRadius:9,padding:"9px",
-                  color:"#e879f9",fontSize:11,fontWeight:700,letterSpacing:"0.06em",
-                }}>
+                <button onClick={()=>setShowNicInput(true)} className="btn" style={{width:"100%",background:theme==="dark"?"rgba(232,121,249,0.1)":theme==="aero"?"rgba(232,121,249,0.14)":"rgba(192,38,211,0.08)",border:`1px solid #e879f940`,borderRadius:9,padding:"9px",color:"#e879f9",fontSize:11,fontWeight:700,letterSpacing:"0.06em"}}>
                   💕 LOG NIC'S CONTRIBUTION
                 </button>
               )}
-
-              <div style={{fontSize:9,color:t.S,marginTop:6,fontStyle:"italic",textAlign:"center"}}>
-                Only YOUR contributions count toward net worth
-              </div>
+              <div style={{fontSize:9,color:t.S,marginTop:6,fontStyle:"italic",textAlign:"center"}}>Only YOUR contributions count toward net worth</div>
             </div>
 
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
@@ -1678,12 +1365,10 @@ export default function App() {
             {totalDebts>0&&(
               <div style={{background:theme==="dark"?"rgba(248,113,113,0.07)":"rgba(220,38,38,0.05)",border:`1px solid ${t.R}33`,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
                 <div className="lbl" style={{color:t.R}}>🚨 DEBT BREAKDOWN</div>
-                {DEBT_ACCOUNTS.map(acc=>{const b=+(debts[acc.id]||0);if(!b) return null;return(
-                  <div key={acc.id} style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
-                    <span style={{fontSize:11,color:t.W}}>{acc.icon} {acc.label}</span>
-                    <span style={{fontSize:11,color:t.R,fontWeight:700}}>-${fmt(b)}</span>
-                  </div>
-                );})}
+                {DEBT_ACCOUNTS.map(acc=>{const b=+(debts[acc.id]||0);if(!b) return null;return(<div key={acc.id} style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
+                  <span style={{fontSize:11,color:t.W}}>{acc.icon} {acc.label}</span>
+                  <span style={{fontSize:11,color:t.R,fontWeight:700}}>-${fmt(b)}</span>
+                </div>);})}
               </div>
             )}
 
@@ -1721,12 +1406,7 @@ export default function App() {
         {/* ══ ACCOUNTS ══ */}
         {screen==="accounts"&&(
           <div className="slide">
-            <div style={{
-              background: theme==="aero" ? "linear-gradient(135deg, rgba(52,211,153,0.18), rgba(96,165,250,0.10) 50%, rgba(167,139,250,0.06))" : theme==="dark" ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))" : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",
-              border:`1px solid ${t.G}40`,
-              borderRadius:12,padding:"14px",marginBottom:12,
-              boxShadow: t.aeroShadow,
-            }}>
+            <div style={{background: theme==="aero" ? "linear-gradient(135deg, rgba(52,211,153,0.18), rgba(96,165,250,0.10) 50%, rgba(167,139,250,0.06))" : theme==="dark" ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))" : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",border:`1px solid ${t.G}40`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow: t.aeroShadow}}>
               <div className="lbl">TRUE NET WORTH</div>
               <div style={{fontSize:24,fontWeight:900,color:t.W}}>${fmt(totalNW)}</div>
               <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
@@ -1801,8 +1481,7 @@ export default function App() {
               const fromAcc = getAccount(tx.fromAccount); const toAcc = getAccount(tx.toAccount);
               const color = tx.type==="income"?t.G:tx.type==="transfer"?t.B:tx.type==="nic_contribution"?"#e879f9":t.R;
               const typeLabel = tx.type==="transfer" ? "⇄ Transfer" : tx.type==="nic_contribution" ? "💒 Nic's Contribution" : tx.category;
-              return(
-              <div key={tx.id} style={{background:t.CARD,border:`1px solid ${color}26`,borderRadius:9,padding:"9px 11px",marginBottom:5,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              return(<div key={tx.id} style={{background:t.CARD,border:`1px solid ${color}26`,borderRadius:9,padding:"9px 11px",marginBottom:5,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{flex:1}}>
                   <div style={{fontSize:10,color:t.W,fontWeight:700}}>{typeLabel}{tx.description && tx.type!=="nic_contribution"?` · ${tx.description}`:tx.note?` · ${tx.note}`:""}</div>
                   <div style={{fontSize:9,color:t.S,marginTop:1}}>{tx.date} · {tx.type==="transfer" ? `${fromAcc?.icon||"?"} → ${toAcc?.icon||"?"}` : tx.type==="income" ? `→ ${toAcc?.icon} ${toAcc?.label}` : tx.type==="nic_contribution" ? `→ 💒 Wedding Fund` : `${fromAcc?.icon} ${fromAcc?.label}`}</div>
@@ -1811,43 +1490,21 @@ export default function App() {
                   <div style={{fontSize:12,fontWeight:700,color}}>{tx.type==="income"?"+":tx.type==="transfer"?"⇄":tx.type==="nic_contribution"?"+":"-"}${fmt(tx.amount)}</div>
                   <button onClick={()=>deleteTx(tx.id)} className="btn" style={{background:theme==="dark"?"rgba(248,113,113,0.1)":"rgba(220,38,38,0.06)",border:`1px solid ${t.R}40`,borderRadius:5,padding:"3px 7px",color:t.R,fontSize:10}}>✕</button>
                 </div>
-              </div>
-            );})}
+              </div>);
+            })}
           </div>
         )}
 
       </div>
 
-      {/* ════ DRILL-DOWN BOTTOM SHEET (overlays everything when active) ════ */}
+      {/* DRILL-DOWN BOTTOM SHEET */}
       {drilldownCategory && (
         <>
-          <div
-            className="sheetBackdrop"
-            onClick={() => setDrilldownCategory(null)}
-            style={{
-              position:"fixed", inset:0,
-              background:"rgba(0,0,0,0.6)",
-              zIndex:200,
-            }}
-          />
-          <div
-            className="sheetUp"
-            style={{
-              position:"fixed", left:0, right:0, bottom:0,
-              background:t.BG,
-              borderTopLeftRadius:20, borderTopRightRadius:20,
-              maxHeight:"80vh", zIndex:201,
-              boxShadow:"0 -10px 40px rgba(0,0,0,0.5)",
-              display:"flex", flexDirection:"column",
-              borderTop:`1px solid ${t.BORDER}`,
-            }}
-          >
-            {/* Drag handle */}
+          <div className="sheetBackdrop" onClick={() => setDrilldownCategory(null)} style={{position:"fixed", inset:0,background:"rgba(0,0,0,0.6)",zIndex:200}}/>
+          <div className="sheetUp" style={{position:"fixed", left:0, right:0, bottom:0,background:t.BG,borderTopLeftRadius:20, borderTopRightRadius:20,maxHeight:"80vh", zIndex:201,boxShadow:"0 -10px 40px rgba(0,0,0,0.5)",display:"flex", flexDirection:"column",borderTop:`1px solid ${t.BORDER}`}}>
             <div style={{display:"flex",justifyContent:"center",padding:"10px 0 4px"}}>
               <div style={{width:40,height:4,background:t.BORDER,borderRadius:2}}/>
             </div>
-
-            {/* Header */}
             <div style={{padding:"6px 18px 14px",borderBottom:`1px solid ${t.BORDER}`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                 <div style={{flex:1,minWidth:0}}>
@@ -1857,51 +1514,24 @@ export default function App() {
                     {drilldownCategory}
                   </div>
                 </div>
-                <button
-                  onClick={() => setDrilldownCategory(null)}
-                  className="btn"
-                  style={{
-                    background:t.CARD, border:`1px solid ${t.BORDER}`,
-                    width:32, height:32, borderRadius:16,
-                    color:t.W, fontSize:14, fontWeight:700,
-                    flexShrink:0,
-                  }}>
-                  ✕
-                </button>
+                <button onClick={() => setDrilldownCategory(null)} className="btn" style={{background:t.CARD, border:`1px solid ${t.BORDER}`,width:32, height:32, borderRadius:16,color:t.W, fontSize:14, fontWeight:700,flexShrink:0}}>✕</button>
               </div>
               <div style={{marginTop:8,fontSize:11,color:t.S}}>
-                {drilldownTxns.length} transaction{drilldownTxns.length === 1 ? "" : "s"} ·{" "}
-                <span style={{color:t.W,fontWeight:700}}>
-                  ${fmt(drilldownTxns.reduce((s,tx)=>s+tx.amount,0))}
-                </span> total
+                {drilldownTxns.length} transaction{drilldownTxns.length === 1 ? "" : "s"} · <span style={{color:t.W,fontWeight:700}}>${fmt(drilldownTxns.reduce((s,tx)=>s+tx.amount,0))}</span> total
               </div>
             </div>
-
-            {/* Transaction list (scrollable, sorted by amount desc) */}
             <div style={{overflowY:"auto",padding:"6px 18px 24px",flex:1}}>
               {drilldownTxns.length === 0 ? (
-                <div style={{textAlign:"center",padding:30,fontSize:11,color:t.S,fontStyle:"italic"}}>
-                  No transactions in this category for the selected period.
-                </div>
+                <div style={{textAlign:"center",padding:30,fontSize:11,color:t.S,fontStyle:"italic"}}>No transactions in this category for the selected period.</div>
               ) : drilldownTxns.map((tx, i) => {
                 const fromAcc = getAccount(tx.fromAccount);
                 return (
-                  <div key={tx.id} style={{
-                    display:"flex",justifyContent:"space-between",alignItems:"center",
-                    padding:"10px 0",
-                    borderBottom: i < drilldownTxns.length - 1 ? `1px solid ${t.BORDER}` : "none",
-                  }}>
+                  <div key={tx.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom: i < drilldownTxns.length - 1 ? `1px solid ${t.BORDER}` : "none"}}>
                     <div style={{flex:1,minWidth:0,paddingRight:10}}>
-                      <div style={{fontSize:12,color:t.W,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                        {tx.description || tx.note || "(no description)"}
-                      </div>
-                      <div style={{fontSize:10,color:t.S,marginTop:2}}>
-                        {tx.date}{fromAcc ? ` · ${fromAcc.icon} ${fromAcc.label}` : ""}
-                      </div>
+                      <div style={{fontSize:12,color:t.W,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tx.description || tx.note || "(no description)"}</div>
+                      <div style={{fontSize:10,color:t.S,marginTop:2}}>{tx.date}{fromAcc ? ` · ${fromAcc.icon} ${fromAcc.label}` : ""}</div>
                     </div>
-                    <div style={{fontSize:13,fontWeight:700,color:t.R,flexShrink:0}}>
-                      -${fmt(tx.amount)}
-                    </div>
+                    <div style={{fontSize:13,fontWeight:700,color:t.R,flexShrink:0}}>-${fmt(tx.amount)}</div>
                   </div>
                 );
               })}
@@ -1910,125 +1540,32 @@ export default function App() {
         </>
       )}
 
-      {/* ════════════════════════════════════════════════════════════════ */}
-      {/* 🪩 THE LEGENDARY STRIPPER POLE INCOME ANIMATION                  */}
-      {/* ════════════════════════════════════════════════════════════════ */}
+      {/* 🪩 STRIPPER POLE ANIMATION */}
       {poleAnimation && (
-        <div style={{
-          position:"fixed", inset:0, zIndex:9999,
-          background:"radial-gradient(ellipse at center, rgba(251,191,36,0.25), rgba(0,0,0,0.85))",
-          overflow:"hidden", pointerEvents:"none",
-        }}>
-          {/* The pole — vertical golden bar down the center */}
-          <div style={{
-            position:"absolute", top:0, bottom:0, left:"50%",
-            transform:"translateX(-50%)",
-            width:8,
-            background:"linear-gradient(180deg, #fde68a, #fbbf24 50%, #d97706)",
-            borderRadius:4,
-            animation:"poleGlow 1s ease-in-out infinite",
-          }}/>
-
-          {/* Matt-bot sliding & spinning down the pole */}
-          <img
-            src="/matt-back.png"
-            alt=""
-            style={{
-              position:"absolute",
-              left:"50%",
-              width:90,
-              height:"auto",
-              transformOrigin:"center center",
-              transformStyle:"preserve-3d",
-              animation:"poleSlide 3s cubic-bezier(0.34, 1.2, 0.64, 1) forwards",
-              imageRendering:"pixelated",
-              filter:"drop-shadow(0 0 12px rgba(251,191,36,0.8))",
-              zIndex:2,
-            }}
-          />
-
-          {/* Money confetti — 18 emoji raining from the top */}
+        <div style={{position:"fixed", inset:0, zIndex:9999,background:"radial-gradient(ellipse at center, rgba(251,191,36,0.25), rgba(0,0,0,0.85))",overflow:"hidden", pointerEvents:"none"}}>
+          <div style={{position:"absolute", top:0, bottom:0, left:"50%",transform:"translateX(-50%)",width:8,background:"linear-gradient(180deg, #fde68a, #fbbf24 50%, #d97706)",borderRadius:4,animation:"poleGlow 1s ease-in-out infinite"}}/>
+          <img src="/matt-back.png" alt="" style={{position:"absolute",left:"50%",width:90,height:"auto",transformOrigin:"center center",transformStyle:"preserve-3d",animation:"poleSlide 3s cubic-bezier(0.34, 1.2, 0.64, 1) forwards",imageRendering:"pixelated",filter:"drop-shadow(0 0 12px rgba(251,191,36,0.8))",zIndex:2}}/>
           {Array.from({length:18}).map((_,i)=>{
             const emoji = ["💵","💸","💰","🤑","💲"][i % 5];
             const left = Math.random() * 100;
             const delay = Math.random() * 1.5;
             const duration = 2 + Math.random() * 1.5;
             const size = 22 + Math.random() * 18;
-            return (
-              <div key={i} style={{
-                position:"absolute",
-                left:`${left}%`,
-                top:0,
-                fontSize:size,
-                animation:`moneyFall ${duration}s linear ${delay}s forwards`,
-                zIndex:1,
-              }}>{emoji}</div>
-            );
+            return (<div key={i} style={{position:"absolute",left:`${left}%`,top:0,fontSize:size,animation:`moneyFall ${duration}s linear ${delay}s forwards`,zIndex:1}}>{emoji}</div>);
           })}
-
-          {/* The amount popping up at the bottom */}
-          <div style={{
-            position:"absolute",
-            bottom:"15%",
-            left:"50%",
-            transform:"translateX(-50%)",
-            animation:"amountPop 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 1s forwards",
-            opacity:0,
-            textAlign:"center",
-            zIndex:3,
-          }}>
-            <div style={{
-              fontSize:14, color:"#fbbf24", fontFamily:"'Courier New',monospace",
-              fontWeight:700, letterSpacing:"0.2em", marginBottom:4,
-              textShadow:"0 0 10px rgba(251,191,36,0.8)",
-            }}>+ INCOME +</div>
-            <div style={{
-              fontSize:42, color:"#34d399", fontFamily:"'Courier New',monospace",
-              fontWeight:900,
-              textShadow:"0 0 15px rgba(52,211,153,0.9), 0 4px 12px rgba(0,0,0,0.6)",
-            }}>${fmt(poleAnimation.amount)}</div>
-            <div style={{
-              fontSize:11, color:"#fde68a", fontFamily:"'Courier New',monospace",
-              marginTop:6, letterSpacing:"0.1em",
-            }}>MATT-BOT APPROVES 🪩</div>
+          <div style={{position:"absolute",bottom:"15%",left:"50%",transform:"translateX(-50%)",animation:"amountPop 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 1s forwards",opacity:0,textAlign:"center",zIndex:3}}>
+            <div style={{fontSize:14, color:"#fbbf24", fontFamily:"'Courier New',monospace",fontWeight:700, letterSpacing:"0.2em", marginBottom:4,textShadow:"0 0 10px rgba(251,191,36,0.8)"}}>+ INCOME +</div>
+            <div style={{fontSize:42, color:"#34d399", fontFamily:"'Courier New',monospace",fontWeight:900,textShadow:"0 0 15px rgba(52,211,153,0.9), 0 4px 12px rgba(0,0,0,0.6)"}}>${fmt(poleAnimation.amount)}</div>
+            <div style={{fontSize:11, color:"#fde68a", fontFamily:"'Courier New',monospace",marginTop:6, letterSpacing:"0.1em"}}>MATT-BOT APPROVES 🪩</div>
           </div>
         </div>
       )}
 
-      {/* ════════════════════════════════════════════════════════════════ */}
-      {/* 📍 BOTTOM-PINNED NAVIGATION BAR                                   */}
-      {/* ════════════════════════════════════════════════════════════════ */}
-      <div style={{
-        position:"fixed",
-        bottom:0, left:0, right:0,
-        background:t.headerBg,
-        borderTop:`1px solid ${t.BORDER}`,
-        backdropFilter:"blur(12px)",
-        WebkitBackdropFilter:"blur(12px)",
-        paddingBottom:"env(safe-area-inset-bottom)",
-        zIndex:100,
-      }}>
-        <div style={{
-          maxWidth:500, margin:"0 auto",
-          padding:"8px 10px",
-          display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:4,
-        }}>
-          {[
-            {id:"dashboard",icon:"📊",label:"HOME"},
-            {id:"log",      icon:"➕",label:"LOG"},
-            {id:"mattbot",  icon:"🤖",label:"MATT"},
-            {id:"accounts", icon:"🏦",label:"ACCTS"},
-            {id:"history",  icon:"📋",label:"HIST"},
-          ].map(({id,icon,label})=>(
-            <button key={id} onClick={()=>setScreen(id)} className="btn" style={{
-              background:screen===id?(theme==="dark"?"rgba(52,211,153,0.12)":"rgba(5,150,105,0.1)"):"transparent",
-              border:`1px solid ${screen===id?t.G:"transparent"}`,
-              borderRadius:10, padding:"8px 3px",
-              color:screen===id?t.G:t.S,
-              fontSize:9, letterSpacing:"0.06em", fontWeight:700,
-              display:"flex", flexDirection:"column", alignItems:"center", gap:2,
-              transition:"all 0.15s",
-            }}>
+      {/* BOTTOM NAV */}
+      <div style={{position:"fixed",bottom:0, left:0, right:0,background:t.headerBg,borderTop:`1px solid ${t.BORDER}`,backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",paddingBottom:"env(safe-area-inset-bottom)",zIndex:100}}>
+        <div style={{maxWidth:500, margin:"0 auto",padding:"8px 10px",display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:4}}>
+          {[{id:"dashboard",icon:"📊",label:"HOME"},{id:"log", icon:"➕",label:"LOG"},{id:"mattbot", icon:"🤖",label:"MATT"},{id:"accounts", icon:"🏦",label:"ACCTS"},{id:"history", icon:"📋",label:"HIST"}].map(({id,icon,label})=>(
+            <button key={id} onClick={()=>setScreen(id)} className="btn" style={{background:screen===id?(theme==="dark"?"rgba(52,211,153,0.12)":"rgba(5,150,105,0.1)"):"transparent",border:`1px solid ${screen===id?t.G:"transparent"}`,borderRadius:10, padding:"8px 3px",color:screen===id?t.G:t.S,fontSize:9, letterSpacing:"0.06em", fontWeight:700,display:"flex", flexDirection:"column", alignItems:"center", gap:2,transition:"all 0.15s"}}>
               <div style={{fontSize:18, lineHeight:1}}>{icon}</div>
               <div>{label}</div>
             </button>
