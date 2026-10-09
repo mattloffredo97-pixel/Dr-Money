@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 
 const MILESTONES = [
-  { target:100000,  label:"First $100K",    icon:"🌱" },
+  { target:100000,  label:"First $100K",    icon:"🚗" },
+  { target:150000,  label:"$150K",          icon:"🏎️" },
+  { target:200000,  label:"$200K",          icon:"✈️" },
   { target:500000,  label:"Half a Million", icon:"🚀" },
   { target:1000000, label:"Millionaire",    icon:"💎" },
 ];
@@ -1281,29 +1283,46 @@ export default function App() {
               </div>
             </div>
 
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
-              {MILESTONES.map(m=>{
+            {(()=>{
+              const renderMilestone = (m, larger=false) => {
                 const done=totalNW>=m.target;
                 const active=activeMilestone.target===m.target;
                 const pct = Math.min((totalNW/m.target)*100, 100);
-                return(<div key={m.target} style={{background: done ? (theme==="dark"?"rgba(52,211,153,0.1)":"rgba(5,150,105,0.08)") : active ? (theme==="dark"?"rgba(251,191,36,0.1)":"rgba(217,119,6,0.08)") : t.CARD,border: `1px solid ${done?t.G:active?t.Y:t.BORDER}`,borderRadius:12, padding:"12px 8px", textAlign:"center",boxShadow: t.aeroShadow}}>
-                  <div style={{fontSize:22,marginBottom:2}}>{m.icon}</div>
-                  <div style={{fontSize:11,color:t.W,fontWeight:700}}>{fmtK(m.target)}</div>
-                  <div style={{fontSize:9,color:done?t.G:active?t.Y:t.S,marginTop:2,fontWeight:700}}>{done?"✅ DONE":active?"◀ CURRENT":`${pct.toFixed(0)}%`}</div>
+                const iconSize = larger ? 18 : 16;
+                const amtSize = larger ? 11 : 10;
+                const statusSize = larger ? 9 : 8;
+                const pad = larger ? "7px 10px" : "7px 6px";
+                const gap = larger ? 8 : 5;
+                return(<div key={m.target} style={{background: done ? (theme==="dark"?"rgba(52,211,153,0.1)":"rgba(5,150,105,0.08)") : active ? (theme==="dark"?"rgba(251,191,36,0.1)":"rgba(217,119,6,0.08)") : t.CARD,border: `1px solid ${done?t.G:active?t.Y:t.BORDER}`,borderRadius:10, padding:pad, display:"flex", alignItems:"center", gap, boxShadow: t.aeroShadow}}>
+                  <span style={{fontSize:iconSize,lineHeight:1,flexShrink:0}}>{m.icon}</span>
+                  <div style={{flex:1,textAlign:"right",minWidth:0}}>
+                    <div style={{fontSize:amtSize,color:t.W,fontWeight:700,lineHeight:1}}>{fmtK(m.target)}</div>
+                    <div style={{fontSize:statusSize,color:done?t.G:active?t.Y:t.S,fontWeight:700,marginTop:2}}>{done?"✅ DONE":active?"◀ CURRENT":`${pct.toFixed(0)}%`}</div>
+                  </div>
                 </div>);
-              })}
-            </div>
+              };
+              const firstRow = MILESTONES.slice(0,3);
+              const secondRow = MILESTONES.slice(3);
+              return (<>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:6}}>
+                  {firstRow.map(m => renderMilestone(m, false))}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginBottom:12}}>
+                  {secondRow.map(m => renderMilestone(m, true))}
+                </div>
+              </>);
+            })()}
 
             {(()=>{
               const hysaBal = +(assets.hysa||0);
-              const hysaPct = Math.min((hysaBal/50000)*100, 100);
-              const hysaDone = hysaBal >= 50000;
+              const hysaPct = Math.min((hysaBal/40000)*100, 100);
+              const hysaDone = hysaBal >= 40000;
               return(<div style={{background: hysaDone ? (theme==="dark"?"rgba(52,211,153,0.08)":"rgba(5,150,105,0.06)") : (theme==="dark"?"rgba(56,189,248,0.06)":"rgba(37,99,235,0.05)"),border:`1px solid ${hysaDone?t.G:"#38bdf8"}40`,borderRadius:12,padding:"12px 14px",marginBottom:10,boxShadow: t.aeroShadow}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                   <div>
                     <div className="lbl" style={{color:hysaDone?t.G:"#38bdf8"}}>🏰 HYSA SUB-GOAL</div>
                     <div style={{fontSize:18,fontWeight:900,color:t.W,marginTop:2}}>${fmt(hysaBal)}</div>
-                    <div style={{fontSize:10,color:t.S}}>of <span style={{color:hysaDone?t.G:"#38bdf8",fontWeight:700}}>$50,000</span> target</div>
+                    <div style={{fontSize:10,color:t.S}}>of <span style={{color:hysaDone?t.G:"#38bdf8",fontWeight:700}}>$40,000</span> target</div>
                   </div>
                   <div style={{fontSize:22,fontWeight:900,color:hysaDone?t.G:"#38bdf8"}}>{hysaPct.toFixed(1)}%</div>
                 </div>
