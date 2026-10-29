@@ -136,7 +136,7 @@ const EMPTY = {
   weddingFund: { total: 0, mattContrib: 0, nicContrib: 0, goal: 60000 },
   balHistory: [],
   streak:0, lastLog:null,
-  theme: "dark",
+  theme: "deep",
   insightsCache: null,
   chatHistory: [],
   budgetStartMonth: null,  // Set to current month on first load; earlier months don't roll over
@@ -147,56 +147,64 @@ let memStore = null;
 const storageRead  = () => { try { return hasLS ? localStorage.getItem(SKEY) : memStore; } catch { return memStore; } };
 const storageWrite = (v) => { try { if(hasLS) localStorage.setItem(SKEY,v); memStore = v; return true; } catch { memStore=v; return false; } };
 
+// ─── LIQUID GLASS THEMES ─────────────────────────────────────────────────────
+// deep = rich night glass, day = light airy glass. Accent colors (G,R,Y,B,P,PK,SKY) must stay 6-digit hex.
+const GLASS_BLUR = "blur(24px) saturate(180%)";
+const blobSet = (c, ring) => [
+  { width:340, height:340, top:-80,   left:-90,   background:`radial-gradient(circle at 35% 35%, ${c[0]}, transparent 68%)` },
+  { width:320, height:320, top:"22%", right:-120, background:`radial-gradient(circle, ${c[1]}, transparent 66%)` },
+  { width:280, height:280, top:"48%", left:-90,   background:`radial-gradient(circle, ${c[2]}, transparent 66%)` },
+  { width:260, height:260, bottom:-40, right:-50, background:`radial-gradient(circle, ${c[3]}, transparent 66%)` },
+  { width:200, height:200, top:"70%", left:"35%", background:`radial-gradient(circle, ${c[4]}, transparent 64%)` },
+  { width:150, height:150, top:"10%", right:"8%", border:`2px solid ${ring}` },
+  { width:96,  height:96,  top:"58%", left:"8%",  border:`2px solid ${ring}` },
+];
+
 const THEMES = {
-  dark: {
-    W: "#ffffff", S: "#cbd5e1", G: "#34d399", R: "#f87171", Y: "#fbbf24", B: "#60a5fa", P: "#a78bfa",
-    BG: "#090b12", CARD: "rgba(255,255,255,0.05)", BORDER: "rgba(255,255,255,0.12)",
-    headerBg: "rgba(9,11,18,0.96)",
-    inputBg: "rgba(255,255,255,0.08)", inputBorder: "rgba(255,255,255,0.2)",
-    placeholderColor: "#475569",
-    selectBg: "#0d1117",
-    btnText: "#090b12",
-    secondaryText: "#94a3b8",
-    cardSubtle: "rgba(255,255,255,0.06)",
-    chartGrid: "rgba(255,255,255,0.08)",
-    aeroShadow: "none",
-    aeroShadowSubtle: "none",
-    isAero: false,
+  deep: {
+    W: "#ffffff", S: "#cbd5e1", G: "#4ade80", R: "#fb7185", Y: "#fcd34d", B: "#7dd3fc", P: "#c4b5fd", PK: "#f0abfc", SKY: "#7dd3fc",
+    BG: "#070b1f",
+    CARD: "radial-gradient(120% 60% at 15% -10%, rgba(255,255,255,0.22), transparent 55%), linear-gradient(135deg, rgba(255,255,255,0.14), rgba(255,255,255,0.04))",
+    BORDER: "rgba(255,255,255,0.2)",
+    headerBg: "rgba(7,11,31,0.62)",
+    inputBg: "rgba(255,255,255,0.08)", inputBorder: "rgba(255,255,255,0.22)",
+    placeholderColor: "#6b7aa6",
+    selectBg: "#111a3a",
+    btnText: "#070b1f",
+    secondaryText: "#a5b4d4",
+    cardSubtle: "linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.03))",
+    chartGrid: "rgba(255,255,255,0.1)",
+    aeroShadow: "inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -1px 0 rgba(255,255,255,0.06), 0 8px 30px rgba(0,0,0,0.35)",
+    aeroShadowSubtle: "inset 0 1px 0 rgba(255,255,255,0.28), 0 4px 16px rgba(0,0,0,0.25)",
+    blur: GLASS_BLUR,
+    blobs: blobSet(["#2f6bff","#8b3dff","#ff3d9a","#00d4c8","#ff9a3d"], "rgba(255,255,255,0.3)"),
+    isDark: true,
+    isAero: true,
   },
-  light: {
-    W: "#0f172a", S: "#475569", G: "#059669", R: "#dc2626", Y: "#d97706", B: "#2563eb", P: "#7c3aed",
-    BG: "#f8fafc", CARD: "rgba(15,23,42,0.04)", BORDER: "rgba(15,23,42,0.12)",
-    headerBg: "rgba(248,250,252,0.96)",
-    inputBg: "rgba(15,23,42,0.04)", inputBorder: "rgba(15,23,42,0.15)",
-    placeholderColor: "#94a3b8",
+  day: {
+    W: "#0b1430", S: "#3b4766", G: "#059669", R: "#e11d48", Y: "#b45309", B: "#0369a1", P: "#6d28d9", PK: "#be185d", SKY: "#0369a1",
+    BG: "#e8f0ff",
+    CARD: "radial-gradient(120% 60% at 15% -10%, rgba(255,255,255,0.6), transparent 55%), linear-gradient(135deg, rgba(255,255,255,0.45), rgba(255,255,255,0.18))",
+    BORDER: "rgba(255,255,255,0.75)",
+    headerBg: "rgba(255,255,255,0.6)",
+    inputBg: "rgba(255,255,255,0.5)", inputBorder: "rgba(255,255,255,0.85)",
+    placeholderColor: "#7a86a8",
     selectBg: "#ffffff",
     btnText: "#ffffff",
-    secondaryText: "#64748b",
-    cardSubtle: "rgba(15,23,42,0.05)",
-    chartGrid: "rgba(15,23,42,0.06)",
-    aeroShadow: "none",
-    aeroShadowSubtle: "none",
-    isAero: false,
-  },
-  aero: {
-    W: "#ffffff", S: "#cbd5e1", G: "#34d399", R: "#f87171", Y: "#fbbf24", B: "#60a5fa", P: "#a78bfa",
-    BG: "linear-gradient(180deg, #0a1628 0%, #142540 50%, #0d1a30 100%)",
-    CARD: "linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02))",
-    BORDER: "rgba(255,255,255,0.15)",
-    headerBg: "rgba(10,22,40,0.65)",
-    inputBg: "linear-gradient(180deg, rgba(0,0,0,0.25), rgba(255,255,255,0.04))",
-    inputBorder: "rgba(255,255,255,0.2)",
-    placeholderColor: "#5a6b8a",
-    selectBg: "#0a1628",
-    btnText: "#0a1628",
-    secondaryText: "#8aa4c4",
-    cardSubtle: "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.01))",
-    chartGrid: "rgba(255,255,255,0.08)",
-    aeroShadow: "inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 16px rgba(0,0,0,0.35)",
-    aeroShadowSubtle: "inset 0 1px 0 rgba(255,255,255,0.12)",
+    secondaryText: "#56628a",
+    cardSubtle: "linear-gradient(135deg, rgba(255,255,255,0.45), rgba(255,255,255,0.2))",
+    chartGrid: "rgba(11,20,48,0.08)",
+    aeroShadow: "inset 0 1px 0 rgba(255,255,255,0.95), inset 0 -1px 0 rgba(255,255,255,0.25), 0 8px 30px rgba(40,60,120,0.14)",
+    aeroShadowSubtle: "inset 0 1px 0 rgba(255,255,255,0.9), 0 4px 16px rgba(40,60,120,0.1)",
+    blur: GLASS_BLUR,
+    blobs: blobSet(["#3b9bff","#a66bff","#ff6fb0","#2fe0c8","#ffb04d"], "rgba(255,255,255,0.8)"),
+    isDark: false,
     isAero: true,
   },
 };
+
+// Old saved themes (dark / aero / light) map onto the new glass themes
+const migrateTheme = (th) => (th === "light" || th === "day") ? "day" : "deep";
 
 const CACHE_HOURS = 6;
 const CACHE_MS = CACHE_HOURS * 60 * 60 * 1000;
@@ -327,7 +335,7 @@ export default function App() {
           weddingFund: { ...EMPTY.weddingFund, ...(parsed.weddingFund||{}) },
           transactions: parsed.transactions || [],
           balHistory:   parsed.balHistory   || [],
-          theme: parsed.theme || "dark",
+          theme: migrateTheme(parsed.theme),
           insightsCache: parsed.insightsCache || null,
           chatHistory: parsed.chatHistory || [],
           // Initialize budgetStartMonth to current month on first load (fresh start)
@@ -358,8 +366,10 @@ export default function App() {
   const patch = (partial) => setData(prev => ({ ...prev, ...partial }));
   const showToast = (msg, type="info") => { setToast({msg,type}); setTimeout(()=>setToast(null),4000); };
 
-  const { transactions, assets, debts, weddingFund, balHistory, streak, lastLog, theme="dark", insightsCache, chatHistory, budgetStartMonth } = data;
-  const t = THEMES[theme] || THEMES.dark;
+  const { transactions, assets, debts, weddingFund, balHistory, streak, lastLog, theme="deep", insightsCache, chatHistory, budgetStartMonth } = data;
+  const t = THEMES[theme] || THEMES.deep;
+  // Frosted-glass effect applied to every card that carries the theme shadow
+  const GL = { backdropFilter: t.blur, WebkitBackdropFilter: t.blur };
 
   const totalAssets = Object.values(assets).reduce((s,v)=>s+(+v||0),0);
   const totalDebts  = Object.values(debts).reduce((s,v)=>s+(+v||0),0);
@@ -816,6 +826,7 @@ export default function App() {
           debts: { ...EMPTY.debts, ...(parsed.debts||{}) },
           weddingFund: { ...EMPTY.weddingFund, ...(parsed.weddingFund||{}) },
           budgetStartMonth: parsed.budgetStartMonth || thisMonthStr(),
+          theme: migrateTheme(parsed.theme),
         });
         showToast("Backup restored! ✅","praise");
       } catch { showToast("Invalid backup file ❌","error"); }
@@ -824,8 +835,7 @@ export default function App() {
   };
 
   const toggleTheme = () => {
-    const next = theme === "dark" ? "aero" : theme === "aero" ? "light" : "dark";
-    patch({ theme: next });
+    patch({ theme: theme === "deep" ? "day" : "deep" });
   };
 
   const clearChat = () => patch({ chatHistory: [] });
@@ -888,16 +898,20 @@ export default function App() {
 
   return (
     <div style={{minHeight:"100vh",background:t.BG,color:t.W,fontFamily:"'Courier New',monospace",paddingBottom:"calc(80px + env(safe-area-inset-bottom))",transition:"background 0.3s, color 0.3s"}}>
+      {/* LIQUID GLASS BACKDROP — colorful shapes the glass cards blur over */}
+      <div aria-hidden="true" style={{position:"fixed",inset:0,zIndex:0,pointerEvents:"none",overflow:"hidden",background:t.BG,transition:"background 0.3s"}}>
+        {t.blobs.map((b,i)=>(<div key={i} style={{position:"absolute",borderRadius:"50%",...b}}/>))}
+      </div>
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
         ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#334155;border-radius:2px}
         .btn{cursor:pointer;border:none;font-family:'Courier New',monospace;transition:all 0.15s;}
-        .btn:hover{filter:brightness(${theme==="dark"?"1.15":"0.96"});}
+        .btn:hover{filter:brightness(${t.isDark?"1.15":"0.96"});}
         .btn:active{transform:scale(0.96);}
         input,select,textarea{font-family:'Courier New',monospace;background:${t.inputBg};border:1px solid ${t.inputBorder};color:${t.W};border-radius:8px;padding:9px 11px;width:100%;font-size:13px;outline:none;}
         input:focus,select:focus,textarea:focus{border-color:${t.G};box-shadow:0 0 0 2px ${t.G}33;}
         select option{background:${t.selectBg};color:${t.W};}
-        input[type=date]{color-scheme:${theme};}
+        input[type=date]{color-scheme:${t.isDark?"dark":"light"};}
         input::placeholder,textarea::placeholder{color:${t.placeholderColor};}
         .slide{animation:su 0.22s ease-out;}
         @keyframes su{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
@@ -922,7 +936,7 @@ export default function App() {
 
       {toast&&(
         <div style={{position:"fixed",top:12,left:"50%",transform:"translateX(-50%)",zIndex:9999,
-          background:toast.type==="roast"?(theme==="dark"?"#1f0808":"#fee2e2"):toast.type==="praise"?(theme==="dark"?"#061a10":"#d1fae5"):toast.type==="achievement"?(theme==="dark"?"#0d0d1f":"#fef3c7"):(theme==="dark"?"#0f172a":"#f1f5f9"),
+          background:toast.type==="roast"?(t.isDark?"#1f0808":"#fee2e2"):toast.type==="praise"?(t.isDark?"#061a10":"#d1fae5"):toast.type==="achievement"?(t.isDark?"#0d0d1f":"#fef3c7"):(t.isDark?"#0f172a":"#f1f5f9"),
           border:`1px solid ${toast.type==="roast"?t.R:toast.type==="praise"?t.G:toast.type==="achievement"?t.Y:t.BORDER}`,
           borderRadius:12,padding:"10px 16px",maxWidth:"92vw",fontSize:11,lineHeight:1.5,color:t.W,boxShadow:"0 8px 24px rgba(0,0,0,0.3)",textAlign:"center"}} className="slide">
           {toast.msg}
@@ -930,7 +944,7 @@ export default function App() {
       )}
 
       {/* HEADER */}
-      <div style={{background:t.headerBg,borderBottom:`1px solid ${t.BORDER}`,padding:"10px 14px",position:"sticky",top:0,zIndex:100,backdropFilter:"blur(12px)"}}>
+      <div style={{background:t.headerBg,borderBottom:`1px solid ${t.BORDER}`,padding:"10px 14px",position:"sticky",top:0,zIndex:100,backdropFilter:t.blur,WebkitBackdropFilter:t.blur}}>
         <div style={{maxWidth:500,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
             <div style={{fontSize:14,fontWeight:900,color:t.G}}>💊 DR. MONEY {statusLabel&&<span style={{fontSize:10,color:statusColor,marginLeft:4}}>{statusLabel}</span>}</div>
@@ -941,14 +955,14 @@ export default function App() {
               <div className="lbl">STREAK</div>
               <div style={{fontSize:11,color:"#fb923c",fontWeight:700}}>{streak>0?`🔥${streak}`:"💤0"}</div>
             </div>
-            <button onClick={toggleTheme} className="btn" style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:18,padding:"6px 10px",fontSize:14,lineHeight:1, boxShadow:t.aeroShadowSubtle}}>
-              {theme==="dark" ? "🌑" : theme==="aero" ? "💎" : "☀️"}
+            <button onClick={toggleTheme} className="btn" style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:18,padding:"6px 10px",fontSize:14,lineHeight:1, ...GL,boxShadow:t.aeroShadowSubtle}}>
+              {theme==="deep" ? "🌌" : "☀️"}
             </button>
           </div>
         </div>
       </div>
 
-      <div style={{maxWidth:500,margin:"0 auto",padding:"12px 12px 0"}}>
+      <div style={{maxWidth:500,margin:"0 auto",padding:"12px 12px 0",position:"relative",zIndex:1}}>
 
         {storageMode==="memory"&&(
           <div style={{background:"rgba(251,146,60,0.08)",border:"1px solid rgba(251,146,60,0.3)",borderRadius:10,padding:"8px 12px",marginBottom:10}}>
@@ -1009,7 +1023,7 @@ export default function App() {
             )}
 
             {/* PROJECTION */}
-            <div style={{background:`linear-gradient(135deg, ${t.Y}14, ${t.G}08)`,border:`1px solid ${t.Y}40`,borderRadius:14,padding:"14px",marginBottom:12,boxShadow:t.aeroShadow}}>
+            <div style={{background:`linear-gradient(135deg, ${t.Y}14, ${t.G}08)`,border:`1px solid ${t.Y}40`,borderRadius:14,padding:"14px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
               <div className="lbl" style={{color:t.Y}}>🔮 PROJECTION</div>
               {isFinite(monthsToGoal) ? (
                 <>
@@ -1031,7 +1045,7 @@ export default function App() {
             </div>
 
             {/* INCOME VS EXPENSES */}
-            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow:t.aeroShadow}}>
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <div className="lbl">📈 INCOME VS EXPENSES</div>
                 <div style={{display:"flex",gap:10,fontSize:9}}>
@@ -1049,7 +1063,7 @@ export default function App() {
               borderRadius:12,
               padding:"14px",
               marginBottom:12,
-              boxShadow:t.aeroShadow,
+              ...GL,boxShadow:t.aeroShadow,
             }}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                 <div className="lbl" style={{margin:0,color:dbCardColor}}>🎯 DISCRETIONARY BUDGET</div>
@@ -1064,7 +1078,7 @@ export default function App() {
                   <div style={{fontSize:9,color:t.S}}>used</div>
                 </div>
               </div>
-              <div style={{height:10,background:theme==="dark"||theme==="aero"?"rgba(255,255,255,0.08)":"rgba(15,23,42,0.08)",borderRadius:5,overflow:"hidden",marginBottom:8}}>
+              <div style={{height:10,background:t.isDark||t.isDark?"rgba(255,255,255,0.08)":"rgba(15,23,42,0.08)",borderRadius:5,overflow:"hidden",marginBottom:8}}>
                 <div style={{
                   height:"100%",
                   width:`${Math.min(db.pctUsed, 100)}%`,
@@ -1082,7 +1096,7 @@ export default function App() {
             </div>
 
             {/* CATEGORY BREAKDOWN */}
-            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow:t.aeroShadow}}>
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                 <div className="lbl" style={{margin:0}}>📊 SPENDING BY CATEGORY</div>
                 <span style={{fontSize:9,color:t.S,letterSpacing:"0.14em",fontWeight:700}}>{periodLabel}</span>
@@ -1127,7 +1141,7 @@ export default function App() {
             </div>
 
             {/* CONVERSATIONAL CHAT */}
-            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow:t.aeroShadow}}>
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <div className="lbl">💬 ASK MATT-BOT</div>
                 {chatHistory.length > 0 && (<button onClick={clearChat} className="btn" style={{background:"transparent",border:"none",color:t.S,fontSize:9,padding:0}}>clear chat</button>)}
@@ -1190,7 +1204,7 @@ export default function App() {
               ))}
             </div>
 
-            <div style={{background:theme==="dark"?"rgba(0,0,0,0.3)":"rgba(15,23,42,0.04)",border:`1px solid ${form.type==="income"?t.G:form.type==="transfer"?t.B:t.R}40`,borderRadius:12,padding:"14px",marginBottom:8,textAlign:"right"}}>
+            <div style={{background:t.isDark?"rgba(0,0,0,0.3)":"rgba(15,23,42,0.04)",border:`1px solid ${form.type==="income"?t.G:form.type==="transfer"?t.B:t.R}40`,borderRadius:12,padding:"14px",marginBottom:8,textAlign:"right"}}>
               <div className="lbl" style={{textAlign:"left",marginBottom:2}}>AMOUNT</div>
               <div style={{fontSize:34,fontWeight:900,color:form.type==="income"?t.G:form.type==="transfer"?t.B:t.R,lineHeight:1}}>${form.amount||"0"}</div>
             </div>
@@ -1198,7 +1212,7 @@ export default function App() {
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:12}}>
               {["7","8","9","4","5","6","1","2","3",".","0","⌫"].map(k=>{
                 const isAction = k==="⌫";
-                return(<button key={k} onClick={()=>onKey(k)} className="btn" style={{background: isAction ? (theme==="dark"?"rgba(248,113,113,0.1)":"rgba(220,38,38,0.06)") : t.cardSubtle,border:`1px solid ${isAction?`${t.R}40`:t.BORDER}`,borderRadius:10, padding:"14px 0",color: isAction?t.R:t.W, fontSize:20, fontWeight:700}}>{k}</button>);
+                return(<button key={k} onClick={()=>onKey(k)} className="btn" style={{background: isAction ? (t.isDark?"rgba(248,113,113,0.1)":"rgba(220,38,38,0.06)") : t.cardSubtle,border:`1px solid ${isAction?`${t.R}40`:t.BORDER}`,borderRadius:10, padding:"14px 0",color: isAction?t.R:t.W, fontSize:20, fontWeight:700}}>{k}</button>);
               })}
             </div>
 
@@ -1237,7 +1251,7 @@ export default function App() {
               <div style={{marginBottom:10}}>
                 <AccountGrid selectedId={form.toAccount} onSelect={id=>setForm(f=>({...f,toAccount:id}))} filter="transfer" label="📥 TO"/>
                 {getAccount(form.toAccount)?.type==="debt" && (<div style={{fontSize:10,color:t.G,marginTop:4,fontStyle:"italic"}}>💪 Paying down {getAccount(form.toAccount)?.label}</div>)}
-                {form.toAccount==="wedding_fund" && (<div style={{fontSize:10,color:"#e879f9",marginTop:4,fontStyle:"italic"}}>💒 Contributing to your wedding fund!</div>)}
+                {form.toAccount==="wedding_fund" && (<div style={{fontSize:10,color:t.PK,marginTop:4,fontStyle:"italic"}}>💒 Contributing to your wedding fund!</div>)}
               </div>
             </>)}
 
@@ -1256,7 +1270,7 @@ export default function App() {
         {/* ══ DASHBOARD ══ */}
         {screen==="dashboard"&&(
           <div className="slide">
-            <div style={{background: theme==="aero" ? "linear-gradient(135deg, rgba(52,211,153,0.18), rgba(96,165,250,0.10) 50%, rgba(167,139,250,0.06))" : theme==="dark" ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))" : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",border:`1px solid ${t.G}40`,borderRadius:16,padding:"18px",marginBottom:12,boxShadow: t.aeroShadow}}>
+            <div style={{background: t.isDark ? "linear-gradient(135deg, rgba(52,211,153,0.18), rgba(96,165,250,0.10) 50%, rgba(167,139,250,0.06))" : t.isDark ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))" : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",border:`1px solid ${t.G}40`,borderRadius:16,padding:"18px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
               <div className="lbl">NET WORTH</div>
               <div style={{fontSize:32,fontWeight:900,color:t.W,letterSpacing:"-0.02em"}}>${fmt(totalNW)}</div>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:t.S,marginTop:6,marginBottom:14}}>
@@ -1273,7 +1287,7 @@ export default function App() {
                   <div style={{fontSize:9,color:t.S}}>complete</div>
                 </div>
               </div>
-              <div style={{height:10,background:theme==="dark"?"rgba(255,255,255,0.08)":"rgba(15,23,42,0.08)",borderRadius:5,overflow:"hidden",marginBottom:6}}>
+              <div style={{height:10,background:t.isDark?"rgba(255,255,255,0.08)":"rgba(15,23,42,0.08)",borderRadius:5,overflow:"hidden",marginBottom:6}}>
                 <div style={{height:"100%",width:`${mProgress}%`,background:`linear-gradient(90deg,${t.G},${t.Y})`,borderRadius:5,transition:"width 1s ease-out"}}/>
               </div>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:t.S}}>
@@ -1293,7 +1307,7 @@ export default function App() {
                 const statusSize = larger ? 9 : 8;
                 const pad = larger ? "7px 10px" : "7px 6px";
                 const gap = larger ? 8 : 5;
-                return(<div key={m.target} style={{background: done ? (theme==="dark"?"rgba(52,211,153,0.1)":"rgba(5,150,105,0.08)") : active ? (theme==="dark"?"rgba(251,191,36,0.1)":"rgba(217,119,6,0.08)") : t.CARD,border: `1px solid ${done?t.G:active?t.Y:t.BORDER}`,borderRadius:10, padding:pad, display:"flex", alignItems:"center", gap, boxShadow: t.aeroShadow}}>
+                return(<div key={m.target} style={{background: done ? (t.isDark?"rgba(52,211,153,0.1)":"rgba(5,150,105,0.08)") : active ? (t.isDark?"rgba(251,191,36,0.1)":"rgba(217,119,6,0.08)") : t.CARD,border: `1px solid ${done?t.G:active?t.Y:t.BORDER}`,borderRadius:10, padding:pad, display:"flex", alignItems:"center", gap, ...GL,boxShadow:t.aeroShadow}}>
                   <span style={{fontSize:iconSize,lineHeight:1,flexShrink:0}}>{m.icon}</span>
                   <div style={{flex:1,textAlign:"right",minWidth:0}}>
                     <div style={{fontSize:amtSize,color:t.W,fontWeight:700,lineHeight:1}}>{fmtK(m.target)}</div>
@@ -1317,47 +1331,47 @@ export default function App() {
               const hysaBal = +(assets.hysa||0);
               const hysaPct = Math.min((hysaBal/40000)*100, 100);
               const hysaDone = hysaBal >= 40000;
-              return(<div style={{background: hysaDone ? (theme==="dark"?"rgba(52,211,153,0.08)":"rgba(5,150,105,0.06)") : (theme==="dark"?"rgba(56,189,248,0.06)":"rgba(37,99,235,0.05)"),border:`1px solid ${hysaDone?t.G:"#38bdf8"}40`,borderRadius:12,padding:"12px 14px",marginBottom:10,boxShadow: t.aeroShadow}}>
+              return(<div style={{background: hysaDone ? (t.isDark?"rgba(52,211,153,0.08)":"rgba(5,150,105,0.06)") : (t.isDark?"rgba(56,189,248,0.06)":"rgba(37,99,235,0.05)"),border:`1px solid ${hysaDone?t.G:t.SKY}40`,borderRadius:12,padding:"12px 14px",marginBottom:10,...GL,boxShadow:t.aeroShadow}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                   <div>
-                    <div className="lbl" style={{color:hysaDone?t.G:"#38bdf8"}}>🏰 HYSA SUB-GOAL</div>
+                    <div className="lbl" style={{color:hysaDone?t.G:t.SKY}}>🏰 HYSA SUB-GOAL</div>
                     <div style={{fontSize:18,fontWeight:900,color:t.W,marginTop:2}}>${fmt(hysaBal)}</div>
-                    <div style={{fontSize:10,color:t.S}}>of <span style={{color:hysaDone?t.G:"#38bdf8",fontWeight:700}}>$40,000</span> target</div>
+                    <div style={{fontSize:10,color:t.S}}>of <span style={{color:hysaDone?t.G:t.SKY,fontWeight:700}}>$40,000</span> target</div>
                   </div>
-                  <div style={{fontSize:22,fontWeight:900,color:hysaDone?t.G:"#38bdf8"}}>{hysaPct.toFixed(1)}%</div>
+                  <div style={{fontSize:22,fontWeight:900,color:hysaDone?t.G:t.SKY}}>{hysaPct.toFixed(1)}%</div>
                 </div>
-                <div style={{height:8,background:theme==="dark"?"rgba(255,255,255,0.08)":"rgba(15,23,42,0.08)",borderRadius:4,overflow:"hidden"}}>
+                <div style={{height:8,background:t.isDark?"rgba(255,255,255,0.08)":"rgba(15,23,42,0.08)",borderRadius:4,overflow:"hidden"}}>
                   <div style={{height:"100%",width:`${hysaPct}%`,background:hysaDone?`linear-gradient(90deg,${t.G},#4ade80)`:"linear-gradient(90deg,#38bdf8,#60a5fa)",borderRadius:4,transition:"width 0.8s"}}/>
                 </div>
               </div>);
             })()}
 
             {/* WEDDING FUND SUB-GOAL */}
-            <div style={{background: wfDone ? (theme==="dark"?"rgba(52,211,153,0.08)":theme==="aero"?"rgba(52,211,153,0.1)":"rgba(5,150,105,0.06)") : (theme==="dark"?"rgba(232,121,249,0.08)":theme==="aero"?"rgba(232,121,249,0.1)":"rgba(192,38,211,0.05)"),border:`1px solid ${wfDone?t.G:"#e879f9"}40`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow: t.aeroShadow}}>
+            <div style={{background: wfDone ? (t.isDark?"rgba(52,211,153,0.08)":t.isDark?"rgba(52,211,153,0.1)":"rgba(5,150,105,0.06)") : (t.isDark?"rgba(232,121,249,0.08)":t.isDark?"rgba(232,121,249,0.1)":"rgba(192,38,211,0.05)"),border:`1px solid ${wfDone?t.G:t.PK}40`,borderRadius:12,padding:"14px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                 <div>
-                  <div className="lbl" style={{color:wfDone?t.G:"#e879f9"}}>💒 WEDDING FUND</div>
+                  <div className="lbl" style={{color:wfDone?t.G:t.PK}}>💒 WEDDING FUND</div>
                   <div style={{fontSize:18,fontWeight:900,color:t.W,marginTop:2}}>${fmt(wf.total||0)}</div>
-                  <div style={{fontSize:10,color:t.S}}>of <span style={{color:wfDone?t.G:"#e879f9",fontWeight:700}}>${fmt0(wf.goal||60000)}</span> target</div>
+                  <div style={{fontSize:10,color:t.S}}>of <span style={{color:wfDone?t.G:t.PK,fontWeight:700}}>${fmt0(wf.goal||60000)}</span> target</div>
                 </div>
-                <div style={{fontSize:22,fontWeight:900,color:wfDone?t.G:"#e879f9"}}>{wfPct.toFixed(1)}%</div>
+                <div style={{fontSize:22,fontWeight:900,color:wfDone?t.G:t.PK}}>{wfPct.toFixed(1)}%</div>
               </div>
-              <div style={{height:8,background:theme==="dark"?"rgba(255,255,255,0.08)":"rgba(15,23,42,0.08)",borderRadius:4,overflow:"hidden",marginBottom:10}}>
+              <div style={{height:8,background:t.isDark?"rgba(255,255,255,0.08)":"rgba(15,23,42,0.08)",borderRadius:4,overflow:"hidden",marginBottom:10}}>
                 <div style={{height:"100%",width:`${wfPct}%`,background:wfDone?`linear-gradient(90deg,${t.G},#4ade80)`:"linear-gradient(90deg,#e879f9,#f472b6)",borderRadius:4,transition:"width 0.8s"}}/>
               </div>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:10,padding:"6px 0",borderTop:`1px solid ${t.BORDER}`,borderBottom:`1px solid ${t.BORDER}`}}>
                 <div><span style={{color:t.S}}>You: </span><span style={{color:t.G,fontWeight:700}}>${fmt(wf.mattContrib||0)}</span></div>
-                <div><span style={{color:t.S}}>Nic: </span><span style={{color:"#e879f9",fontWeight:700}}>${fmt(wf.nicContrib||0)}</span></div>
+                <div><span style={{color:t.S}}>Nic: </span><span style={{color:t.PK,fontWeight:700}}>${fmt(wf.nicContrib||0)}</span></div>
                 <div><span style={{color:t.S}}>Remaining: </span><span style={{color:t.W,fontWeight:700}}>${fmt(Math.max(0,(wf.goal||60000)-(wf.total||0)))}</span></div>
               </div>
               {showNicInput ? (
                 <div style={{display:"flex",gap:6}}>
-                  <input type="number" placeholder="Nic's amount..." value={nicAmt} onChange={e=>setNicAmt(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") logNicContribution()}} style={{flex:1,color:"#e879f9",borderColor:"#e879f966"}} autoFocus/>
+                  <input type="number" placeholder="Nic's amount..." value={nicAmt} onChange={e=>setNicAmt(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") logNicContribution()}} style={{flex:1,color:t.PK,borderColor:"#e879f966"}} autoFocus/>
                   <button onClick={logNicContribution} className="btn" style={{background:"linear-gradient(135deg,#e879f9,#f472b6)",borderRadius:8,padding:"0 14px",color:t.btnText,fontSize:12,fontWeight:700}}>ADD</button>
                   <button onClick={()=>{setShowNicInput(false);setNicAmt("")}} className="btn" style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:8,padding:"0 12px",color:t.S,fontSize:12}}>✕</button>
                 </div>
               ) : (
-                <button onClick={()=>setShowNicInput(true)} className="btn" style={{width:"100%",background:theme==="dark"?"rgba(232,121,249,0.1)":theme==="aero"?"rgba(232,121,249,0.14)":"rgba(192,38,211,0.08)",border:`1px solid #e879f940`,borderRadius:9,padding:"9px",color:"#e879f9",fontSize:11,fontWeight:700,letterSpacing:"0.06em"}}>
+                <button onClick={()=>setShowNicInput(true)} className="btn" style={{width:"100%",background:t.isDark?"rgba(232,121,249,0.1)":t.isDark?"rgba(232,121,249,0.14)":"rgba(192,38,211,0.08)",border:`1px solid #e879f940`,borderRadius:9,padding:"9px",color:t.PK,fontSize:11,fontWeight:700,letterSpacing:"0.06em"}}>
                   💕 LOG NIC'S CONTRIBUTION
                 </button>
               )}
@@ -1365,22 +1379,22 @@ export default function App() {
             </div>
 
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
-              <div style={{background:t.CARD,border:`1px solid ${t.B}40`,borderRadius:12,padding:"12px",boxShadow:t.aeroShadow}}>
+              <div style={{background:t.CARD,border:`1px solid ${t.B}40`,borderRadius:12,padding:"12px",...GL,boxShadow:t.aeroShadow}}>
                 <div className="lbl">💵 CASH</div>
                 <div style={{fontSize:14,fontWeight:700,color:t.B,marginTop:2}}>${fmt(cashTotal)}</div>
               </div>
-              <div style={{background:t.CARD,border:`1px solid ${t.P}40`,borderRadius:12,padding:"12px",boxShadow:t.aeroShadow}}>
+              <div style={{background:t.CARD,border:`1px solid ${t.P}40`,borderRadius:12,padding:"12px",...GL,boxShadow:t.aeroShadow}}>
                 <div className="lbl">📈 INVESTED</div>
                 <div style={{fontSize:14,fontWeight:700,color:t.P,marginTop:2}}>${fmt(investTotal)}</div>
               </div>
-              <div style={{background:t.CARD,border:`1px solid ${t.R}40`,borderRadius:12,padding:"12px",boxShadow:t.aeroShadow}}>
+              <div style={{background:t.CARD,border:`1px solid ${t.R}40`,borderRadius:12,padding:"12px",...GL,boxShadow:t.aeroShadow}}>
                 <div className="lbl">💳 DEBT</div>
                 <div style={{fontSize:14,fontWeight:700,color:t.R,marginTop:2}}>${fmt(totalDebts)}</div>
               </div>
             </div>
 
             {totalDebts>0&&(
-              <div style={{background:theme==="dark"?"rgba(248,113,113,0.07)":"rgba(220,38,38,0.05)",border:`1px solid ${t.R}33`,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+              <div style={{background:t.isDark?"rgba(248,113,113,0.07)":"rgba(220,38,38,0.05)",border:`1px solid ${t.R}33`,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
                 <div className="lbl" style={{color:t.R}}>🚨 DEBT BREAKDOWN</div>
                 {DEBT_ACCOUNTS.map(acc=>{const b=+(debts[acc.id]||0);if(!b) return null;return(<div key={acc.id} style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
                   <span style={{fontSize:11,color:t.W}}>{acc.icon} {acc.label}</span>
@@ -1390,7 +1404,7 @@ export default function App() {
             )}
 
             <div className="lbl" style={{marginBottom:6}}>📆 {thisMonth}</div>
-            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow:t.aeroShadow}}>
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
               <div style={{display:"flex",justifyContent:"space-between"}}>
                 <div>
                   <div className="lbl">INCOME</div>
@@ -1407,7 +1421,7 @@ export default function App() {
               </div>
             </div>
 
-            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"12px",marginTop:6,boxShadow:t.aeroShadow}}>
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"12px",marginTop:6,...GL,boxShadow:t.aeroShadow}}>
               <div className="lbl" style={{marginBottom:8}}>🔐 BACKUP & RESTORE</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                 <button onClick={exportData} className="btn" style={{background:`${t.G}1a`,border:`1px solid ${t.G}40`,borderRadius:8,padding:"9px",color:t.G,fontSize:11,fontWeight:700}}>⬇️ EXPORT</button>
@@ -1423,7 +1437,7 @@ export default function App() {
         {/* ══ ACCOUNTS ══ */}
         {screen==="accounts"&&(
           <div className="slide">
-            <div style={{background: theme==="aero" ? "linear-gradient(135deg, rgba(52,211,153,0.18), rgba(96,165,250,0.10) 50%, rgba(167,139,250,0.06))" : theme==="dark" ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))" : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",border:`1px solid ${t.G}40`,borderRadius:12,padding:"14px",marginBottom:12,boxShadow: t.aeroShadow}}>
+            <div style={{background: t.isDark ? "linear-gradient(135deg, rgba(52,211,153,0.18), rgba(96,165,250,0.10) 50%, rgba(167,139,250,0.06))" : t.isDark ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))" : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",border:`1px solid ${t.G}40`,borderRadius:12,padding:"14px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
               <div className="lbl">TRUE NET WORTH</div>
               <div style={{fontSize:24,fontWeight:900,color:t.W}}>${fmt(totalNW)}</div>
               <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
@@ -1434,7 +1448,7 @@ export default function App() {
 
             <div style={{fontSize:13,color:t.W,fontWeight:700,marginBottom:6}}>💰 ASSETS <span style={{fontSize:9,color:t.G,marginLeft:6,opacity:0.7}}>●</span></div>
             {ASSET_ACCOUNTS.map(acc=>(
-              <div key={acc.id} style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:10,padding:"12px 14px",marginBottom:8,boxShadow:t.aeroShadowSubtle}}>
+              <div key={acc.id} style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:10,padding:"12px 14px",marginBottom:8,...GL,boxShadow:t.aeroShadowSubtle}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                   <div style={{display:"flex",gap:10,alignItems:"center"}}>
                     <span style={{fontSize:22}}>{acc.icon}</span>
@@ -1450,7 +1464,7 @@ export default function App() {
             ))}
 
             {/* Wedding Fund read-only card */}
-            <div style={{background:theme==="dark"?"rgba(232,121,249,0.06)":theme==="aero"?"rgba(232,121,249,0.1)":"rgba(192,38,211,0.04)",border:`1px solid #e879f940`,borderRadius:10,padding:"12px 14px",marginBottom:8,marginTop:6,boxShadow:t.aeroShadowSubtle}}>
+            <div style={{background:t.isDark?"rgba(232,121,249,0.06)":t.isDark?"rgba(232,121,249,0.1)":"rgba(192,38,211,0.04)",border:`1px solid #e879f940`,borderRadius:10,padding:"12px 14px",marginBottom:8,marginTop:6,...GL,boxShadow:t.aeroShadowSubtle}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                 <div style={{display:"flex",gap:10,alignItems:"center"}}>
                   <span style={{fontSize:22}}>💒</span>
@@ -1459,18 +1473,18 @@ export default function App() {
                     <div style={{fontSize:10,color:t.S,marginTop:1}}>Joint Total</div>
                   </div>
                 </div>
-                <div style={{fontSize:18,color:"#e879f9",fontWeight:900,letterSpacing:"-0.01em"}}>${fmt(wf.total||0)}</div>
+                <div style={{fontSize:18,color:t.PK,fontWeight:900,letterSpacing:"-0.01em"}}>${fmt(wf.total||0)}</div>
               </div>
               <div style={{fontSize:10,color:t.S,paddingTop:6,borderTop:`1px solid ${t.BORDER}`,display:"flex",justifyContent:"space-between"}}>
                 <span>You: <span style={{color:t.G,fontWeight:700}}>${fmt(wf.mattContrib||0)}</span></span>
-                <span>Nic: <span style={{color:"#e879f9",fontWeight:700}}>${fmt(wf.nicContrib||0)}</span></span>
+                <span>Nic: <span style={{color:t.PK,fontWeight:700}}>${fmt(wf.nicContrib||0)}</span></span>
               </div>
               <div style={{fontSize:9,color:t.S,fontStyle:"italic",textAlign:"center",marginTop:6}}>Update via LOG transfer or HOME's "Log Nic's Contribution"</div>
             </div>
 
             <div style={{fontSize:13,color:t.R,fontWeight:700,margin:"16px 0 6px"}}>💳 DEBTS</div>
             {DEBT_ACCOUNTS.map(acc=>(
-              <div key={acc.id} style={{background:theme==="dark"?"rgba(248,113,113,0.04)":theme==="aero"?"rgba(248,113,113,0.06)":"rgba(220,38,38,0.03)",border:`1px solid ${t.R}26`,borderRadius:10,padding:"12px 14px",marginBottom:8,boxShadow:t.aeroShadowSubtle}}>
+              <div key={acc.id} style={{background:t.isDark?"rgba(248,113,113,0.04)":t.isDark?"rgba(248,113,113,0.06)":"rgba(220,38,38,0.03)",border:`1px solid ${t.R}26`,borderRadius:10,padding:"12px 14px",marginBottom:8,...GL,boxShadow:t.aeroShadowSubtle}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                   <div style={{display:"flex",gap:10,alignItems:"center"}}>
                     <span style={{fontSize:22}}>{acc.icon}</span>
@@ -1496,7 +1510,7 @@ export default function App() {
             {transactions.length===0&&<div style={{textAlign:"center",padding:40,color:t.W,fontSize:12}}>No transactions yet. 💊</div>}
             {transactions.map(tx=>{
               const fromAcc = getAccount(tx.fromAccount); const toAcc = getAccount(tx.toAccount);
-              const color = tx.type==="income"?t.G:tx.type==="transfer"?t.B:tx.type==="nic_contribution"?"#e879f9":t.R;
+              const color = tx.type==="income"?t.G:tx.type==="transfer"?t.B:tx.type==="nic_contribution"?t.PK:t.R;
               const typeLabel = tx.type==="transfer" ? "⇄ Transfer" : tx.type==="nic_contribution" ? "💒 Nic's Contribution" : tx.category;
               return(<div key={tx.id} style={{background:t.CARD,border:`1px solid ${color}26`,borderRadius:9,padding:"9px 11px",marginBottom:5,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{flex:1}}>
@@ -1505,7 +1519,7 @@ export default function App() {
                 </div>
                 <div style={{display:"flex",gap:6,alignItems:"center"}}>
                   <div style={{fontSize:12,fontWeight:700,color}}>{tx.type==="income"?"+":tx.type==="transfer"?"⇄":tx.type==="nic_contribution"?"+":"-"}${fmt(tx.amount)}</div>
-                  <button onClick={()=>deleteTx(tx.id)} className="btn" style={{background:theme==="dark"?"rgba(248,113,113,0.1)":"rgba(220,38,38,0.06)",border:`1px solid ${t.R}40`,borderRadius:5,padding:"3px 7px",color:t.R,fontSize:10}}>✕</button>
+                  <button onClick={()=>deleteTx(tx.id)} className="btn" style={{background:t.isDark?"rgba(248,113,113,0.1)":"rgba(220,38,38,0.06)",border:`1px solid ${t.R}40`,borderRadius:5,padding:"3px 7px",color:t.R,fontSize:10}}>✕</button>
                 </div>
               </div>);
             })}
@@ -1579,10 +1593,10 @@ export default function App() {
       )}
 
       {/* BOTTOM NAV */}
-      <div style={{position:"fixed",bottom:0, left:0, right:0,background:t.headerBg,borderTop:`1px solid ${t.BORDER}`,backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",paddingBottom:"env(safe-area-inset-bottom)",zIndex:100}}>
+      <div style={{position:"fixed",bottom:0, left:0, right:0,background:t.headerBg,borderTop:`1px solid ${t.BORDER}`,backdropFilter:t.blur,WebkitBackdropFilter:t.blur,paddingBottom:"env(safe-area-inset-bottom)",zIndex:100}}>
         <div style={{maxWidth:500, margin:"0 auto",padding:"8px 10px",display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:4}}>
           {[{id:"dashboard",icon:"📊",label:"HOME"},{id:"log", icon:"➕",label:"LOG"},{id:"mattbot", icon:"🤖",label:"MATT"},{id:"accounts", icon:"🏦",label:"ACCTS"},{id:"history", icon:"📋",label:"HIST"}].map(({id,icon,label})=>(
-            <button key={id} onClick={()=>setScreen(id)} className="btn" style={{background:screen===id?(theme==="dark"?"rgba(52,211,153,0.12)":"rgba(5,150,105,0.1)"):"transparent",border:`1px solid ${screen===id?t.G:"transparent"}`,borderRadius:10, padding:"8px 3px",color:screen===id?t.G:t.S,fontSize:9, letterSpacing:"0.06em", fontWeight:700,display:"flex", flexDirection:"column", alignItems:"center", gap:2,transition:"all 0.15s"}}>
+            <button key={id} onClick={()=>setScreen(id)} className="btn" style={{background:screen===id?(t.isDark?"rgba(52,211,153,0.12)":"rgba(5,150,105,0.1)"):"transparent",border:`1px solid ${screen===id?t.G:"transparent"}`,borderRadius:10, padding:"8px 3px",color:screen===id?t.G:t.S,fontSize:9, letterSpacing:"0.06em", fontWeight:700,display:"flex", flexDirection:"column", alignItems:"center", gap:2,transition:"all 0.15s"}}>
               <div style={{fontSize:18, lineHeight:1}}>{icon}</div>
               <div>{label}</div>
             </button>
