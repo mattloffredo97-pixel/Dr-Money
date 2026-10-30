@@ -150,14 +150,12 @@ const storageWrite = (v) => { try { if(hasLS) localStorage.setItem(SKEY,v); memS
 // ─── LIQUID GLASS THEMES ─────────────────────────────────────────────────────
 // deep = rich night glass, day = light airy glass. Accent colors (G,R,Y,B,P,PK,SKY) must stay 6-digit hex.
 const GLASS_BLUR = "blur(24px) saturate(180%)";
-const blobSet = (c, ring) => [
-  { width:340, height:340, top:-80,   left:-90,   background:`radial-gradient(circle at 35% 35%, ${c[0]}, transparent 68%)` },
-  { width:320, height:320, top:"22%", right:-120, background:`radial-gradient(circle, ${c[1]}, transparent 66%)` },
-  { width:280, height:280, top:"48%", left:-90,   background:`radial-gradient(circle, ${c[2]}, transparent 66%)` },
-  { width:260, height:260, bottom:-40, right:-50, background:`radial-gradient(circle, ${c[3]}, transparent 66%)` },
-  { width:200, height:200, top:"70%", left:"35%", background:`radial-gradient(circle, ${c[4]}, transparent 64%)` },
-  { width:150, height:150, top:"10%", right:"8%", border:`2px solid ${ring}` },
-  { width:96,  height:96,  top:"58%", left:"8%",  border:`2px solid ${ring}` },
+// Soft, low-strength color glows tucked toward the screen edges (no outlines)
+const blobSet = (c, strength) => [
+  { width:460, height:460, top:-160,   left:-180,  opacity:strength, background:`radial-gradient(circle, ${c[0]}, transparent 70%)` },
+  { width:420, height:420, top:"30%",  right:-220, opacity:strength, background:`radial-gradient(circle, ${c[1]}, transparent 70%)` },
+  { width:400, height:400, top:"62%",  left:-220,  opacity:strength, background:`radial-gradient(circle, ${c[2]}, transparent 70%)` },
+  { width:440, height:440, bottom:-200, right:-160, opacity:strength, background:`radial-gradient(circle, ${c[3]}, transparent 70%)` },
 ];
 
 const THEMES = {
@@ -177,7 +175,7 @@ const THEMES = {
     aeroShadow: "inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -1px 0 rgba(255,255,255,0.06), 0 8px 30px rgba(0,0,0,0.35)",
     aeroShadowSubtle: "inset 0 1px 0 rgba(255,255,255,0.28), 0 4px 16px rgba(0,0,0,0.25)",
     blur: GLASS_BLUR,
-    blobs: blobSet(["#2f6bff","#8b3dff","#ff3d9a","#00d4c8","#ff9a3d"], "rgba(255,255,255,0.3)"),
+    blobs: blobSet(["#2f6bff","#8b3dff","#ff3d9a","#00d4c8"], 0.38),
     isDark: true,
     isAero: true,
   },
@@ -197,7 +195,7 @@ const THEMES = {
     aeroShadow: "inset 0 1px 0 rgba(255,255,255,0.95), inset 0 -1px 0 rgba(255,255,255,0.25), 0 8px 30px rgba(40,60,120,0.14)",
     aeroShadowSubtle: "inset 0 1px 0 rgba(255,255,255,0.9), 0 4px 16px rgba(40,60,120,0.1)",
     blur: GLASS_BLUR,
-    blobs: blobSet(["#3b9bff","#a66bff","#ff6fb0","#2fe0c8","#ffb04d"], "rgba(255,255,255,0.8)"),
+    blobs: blobSet(["#3b9bff","#a66bff","#ff6fb0","#2fe0c8"], 0.32),
     isDark: false,
     isAero: true,
   },
