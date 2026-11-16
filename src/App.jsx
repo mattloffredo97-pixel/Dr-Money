@@ -231,65 +231,86 @@ function CategoryBarChart({ data, t, theme, onBarClick }) {
   );
 }
 
-function LineChart({ data, t, theme, height=120 }) {
+// ─── CHART HELPERS ─────────────────────────────────────────────────────────────
+const monthShort = (key) => { const [y, m] = key.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short" }); };
+const fmtAxis = (n) => n >= 1000000 ? `$${(n/1000000).toFixed(2)}M` : n >= 1000 ? `$${(n/1000).toFixed(n >= 100000 ? 0 : 1)}k` : `$${Math.round(n)}`;
+const niceCeil = (v) => { if (v <= 0) return 100; const p = Math.pow(10, Math.floor(Math.log10(v))); const step = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find(x => x * p >= v); return step * p; };
+
+// ─── INCOME VS EXPENSES CHART (every month + every axis value labeled) ────────
+function LineChart({ data, t, height=170 }) {
   if (!data || data.length < 2) return <div style={{padding:24,textAlign:"center",fontSize:11,color:t.S,fontStyle:"italic"}}>Need more data to show this chart 📊</div>;
-  const width = 280;
-  const padding = { top: 10, right: 10, bottom: 24, left: 36 };
-  const chartW = width - padding.left - padding.right;
-  const chartH = height - padding.top - padding.bottom;
-  const maxVal = Math.max(...data.flatMap(d => [d.income || 0, d.expense || 0]));
-  const minVal = 0;
-  const xStep = chartW / Math.max(data.length - 1, 1);
-  const incomePoints = data.map((d, i) => ({x: padding.left + i * xStep, y: padding.top + chartH - ((d.income - minVal) / (maxVal - minVal || 1)) * chartH}));
-  const expensePoints = data.map((d, i) => ({x: padding.left + i * xStep, y: padding.top + chartH - ((d.expense - minVal) / (maxVal - minVal || 1)) * chartH}));
-  const incomePath = incomePoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-  const expensePath = expensePoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const width = 300;
+  const pad = { top: 12, right: 14, bottom: 22, left: 42 };
+  const cw = width - pad.left - pad.right;
+  const ch = height - pad.top - pad.bottom;
+  const top = niceCeil(Math.max(...data.flatMap(d => [d.income || 0, d.expense || 0])));
+  const ticks = [0, 0.25, 0.5, 0.75, 1];
+  const xStep = cw / (data.length - 1);
+  const X = (i) => pad.left + i * xStep;
+  const Y = (v) => pad.top + ch - (v / top) * ch;
+  const inc = data.map((d, i) => ({ x: X(i), y: Y(d.income || 0) }));
+  const exp = data.map((d, i) => ({ x: X(i), y: Y(d.expense || 0) }));
+  const line = (pts) => pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+  const area = (pts) => `${line(pts)} L ${pts[pts.length-1].x} ${pad.top + ch} L ${pts[0].x} ${pad.top + ch} Z`;
   return (
     <svg viewBox={`0 0 ${width} ${height}`} style={{width:"100%",height:"auto",display:"block"}}>
       <defs>
-        <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={t.G} stopOpacity="0.4"/><stop offset="100%" stopColor={t.G} stopOpacity="0"/></linearGradient>
-        <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={t.R} stopOpacity="0.4"/><stop offset="100%" stopColor={t.R} stopOpacity="0"/></linearGradient>
+        <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={t.G} stopOpacity="0.35"/><stop offset="100%" stopColor={t.G} stopOpacity="0"/></linearGradient>
+        <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={t.R} stopOpacity="0.35"/><stop offset="100%" stopColor={t.R} stopOpacity="0"/></linearGradient>
       </defs>
-      {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (<line key={i} x1={padding.left} y1={padding.top + chartH * p} x2={width - padding.right} y2={padding.top + chartH * p} stroke={t.chartGrid} strokeWidth="0.5"/>))}
-      {[0, 0.5, 1].map((p, i) => (<text key={i} x={padding.left - 4} y={padding.top + chartH * (1 - p) + 3} fontSize="8" fill={t.S} textAnchor="end" fontFamily="monospace">${fmt0(maxVal * p)}</text>))}
-      <path d={`${incomePath} L ${incomePoints[incomePoints.length-1].x} ${padding.top + chartH} L ${incomePoints[0].x} ${padding.top + chartH} Z`} fill="url(#incomeGrad)"/>
-      <path d={`${expensePath} L ${expensePoints[expensePoints.length-1].x} ${padding.top + chartH} L ${expensePoints[0].x} ${padding.top + chartH} Z`} fill="url(#expenseGrad)"/>
-      <path d={incomePath} fill="none" stroke={t.G} strokeWidth="2" filter={`drop-shadow(0 0 4px ${t.G}88)`}/>
-      <path d={expensePath} fill="none" stroke={t.R} strokeWidth="2" filter={`drop-shadow(0 0 4px ${t.R}88)`}/>
-      {incomePoints.map((p, i) => (<circle key={`i-${i}`} cx={p.x} cy={p.y} r="2.5" fill={t.G} stroke={t.BG} strokeWidth="1"/>))}
-      {expensePoints.map((p, i) => (<circle key={`e-${i}`} cx={p.x} cy={p.y} r="2.5" fill={t.R} stroke={t.BG} strokeWidth="1"/>))}
-      {data.map((d, i) => (i % Math.ceil(data.length / 4) === 0 || i === data.length - 1 ? (<text key={i} x={padding.left + i * xStep} y={height - 6} fontSize="8" fill={t.S} textAnchor="middle" fontFamily="monospace">{d.month.slice(5)}</text>) : null))}
+      {ticks.map((p, i) => (
+        <g key={i}>
+          <line x1={pad.left} y1={Y(top * p)} x2={width - pad.right} y2={Y(top * p)} stroke={t.chartGrid} strokeWidth="0.6"/>
+          <text x={pad.left - 5} y={Y(top * p) + 3} fontSize="8.5" fill={t.S} textAnchor="end" fontFamily="monospace">{fmtAxis(top * p)}</text>
+        </g>
+      ))}
+      <path d={area(inc)} fill="url(#incomeGrad)"/>
+      <path d={area(exp)} fill="url(#expenseGrad)"/>
+      <path d={line(inc)} fill="none" stroke={t.G} strokeWidth="2"/>
+      <path d={line(exp)} fill="none" stroke={t.R} strokeWidth="2"/>
+      {inc.map((p, i) => <circle key={`i${i}`} cx={p.x} cy={p.y} r="2.8" fill={t.G} stroke={t.BG} strokeWidth="1"/>)}
+      {exp.map((p, i) => <circle key={`e${i}`} cx={p.x} cy={p.y} r="2.8" fill={t.R} stroke={t.BG} strokeWidth="1"/>)}
+      {data.map((d, i) => <text key={i} x={X(i)} y={height - 6} fontSize="8.5" fill={t.S} textAnchor="middle" fontFamily="monospace">{monthShort(d.month)}</text>)}
     </svg>
   );
 }
 
-function ProjectionChart({ currentNW, targetNW, monthlySavings, t, theme, monthsToGoal }) {
-  const width = 280, height = 120;
-  const padding = { top: 10, right: 10, bottom: 24, left: 36 };
-  const chartW = width - padding.left - padding.right;
-  const chartH = height - padding.top - padding.bottom;
-  if (monthlySavings <= 0) return <div style={{padding:24,textAlign:"center",fontSize:11,color:t.S,fontStyle:"italic"}}>Save more than you spend to see projection 📈</div>;
-  const totalMonths = Math.min(monthsToGoal + 3, 60);
-  const points = [];
-  for (let i = 0; i <= totalMonths; i++) {
-    const value = currentNW + (monthlySavings * i);
-    points.push({x: padding.left + (i / totalMonths) * chartW, y: padding.top + chartH - ((value / targetNW) * chartH), value, month: i});
-  }
-  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${Math.max(p.y, padding.top)}`).join(' ');
-  const targetY = padding.top;
+// ─── PROJECTION CHART (month-by-month path with milestone lines) ──────────────
+function ProjectionChart({ rows, currentNW, t, height=170 }) {
+  if (!rows || rows.length === 0) return null;
+  const width = 300;
+  const pad = { top: 12, right: 14, bottom: 22, left: 44 };
+  const cw = width - pad.left - pad.right;
+  const ch = height - pad.top - pad.bottom;
+  const pts = [{ i: 0, short: "Now", value: currentNW }, ...rows];
+  const yMin = Math.max(0, Math.floor(currentNW / 10000) * 10000);
+  let yMax = Math.ceil(pts[pts.length - 1].value / 10000) * 10000;
+  if (yMax <= yMin) yMax = yMin + 10000;
+  const Y = (v) => pad.top + ch - ((v - yMin) / (yMax - yMin)) * ch;
+  const X = (i) => pad.left + (i / (pts.length - 1)) * cw;
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(p => yMin + (yMax - yMin) * p);
+  const every = Math.ceil((pts.length - 1) / 6);
+  const path = pts.map((p, k) => `${k === 0 ? "M" : "L"} ${X(k)} ${Y(p.value)}`).join(" ");
+  const goals = MILESTONES.filter(m => m.target > yMin && m.target <= yMax);
   return (
     <svg viewBox={`0 0 ${width} ${height}`} style={{width:"100%",height:"auto",display:"block"}}>
-      <defs><linearGradient id="trajGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={t.Y} stopOpacity="0.5"/><stop offset="100%" stopColor={t.G} stopOpacity="0"/></linearGradient></defs>
-      {[0, 0.25, 0.5, 0.75, 1].map((p, i) => <line key={i} x1={padding.left} y1={padding.top + chartH * p} x2={width - padding.right} y2={padding.top + chartH * p} stroke={t.chartGrid} strokeWidth="0.5"/>)}
-      <line x1={padding.left} y1={targetY} x2={width - padding.right} y2={targetY} stroke={t.Y} strokeWidth="1" strokeDasharray="3,3" opacity="0.6"/>
-      <text x={width - padding.right - 4} y={targetY - 3} fontSize="8" fill={t.Y} textAnchor="end" fontFamily="monospace">${fmt0(targetNW)}</text>
-      {[0, 1].map((p, i) => (<text key={i} x={padding.left - 4} y={padding.top + chartH * (1 - p) + 3} fontSize="8" fill={t.S} textAnchor="end" fontFamily="monospace">${fmt0(targetNW * p)}</text>))}
-      <path d={`${path} L ${points[points.length-1].x} ${padding.top + chartH} L ${points[0].x} ${padding.top + chartH} Z`} fill="url(#trajGrad)"/>
-      <path d={path} fill="none" stroke={`url(#trajGrad)`} strokeWidth="2"/>
-      <path d={path} fill="none" stroke={t.G} strokeWidth="2" filter={`drop-shadow(0 0 6px ${t.G}aa)`}/>
-      <circle cx={points[0].x} cy={points[0].y} r="4" fill={t.G} stroke={t.BG} strokeWidth="2"/>
-      <text x={padding.left} y={height - 6} fontSize="8" fill={t.S} textAnchor="start" fontFamily="monospace">Now</text>
-      <text x={width - padding.right} y={height - 6} fontSize="8" fill={t.S} textAnchor="end" fontFamily="monospace">{totalMonths}mo</text>
+      <defs><linearGradient id="trajGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={t.G} stopOpacity="0.3"/><stop offset="100%" stopColor={t.G} stopOpacity="0"/></linearGradient></defs>
+      {ticks.map((v, i) => (
+        <g key={i}>
+          <line x1={pad.left} y1={Y(v)} x2={width - pad.right} y2={Y(v)} stroke={t.chartGrid} strokeWidth="0.6"/>
+          <text x={pad.left - 5} y={Y(v) + 3} fontSize="8.5" fill={t.S} textAnchor="end" fontFamily="monospace">{fmtAxis(v)}</text>
+        </g>
+      ))}
+      {goals.map(m => (
+        <g key={m.target}>
+          <line x1={pad.left} y1={Y(m.target)} x2={width - pad.right} y2={Y(m.target)} stroke={t.Y} strokeWidth="1" strokeDasharray="3,3" opacity="0.8"/>
+          <text x={pad.left + 3} y={Y(m.target) - 3} fontSize="8" fill={t.Y} fontFamily="monospace">{m.icon} {fmtAxis(m.target)}</text>
+        </g>
+      ))}
+      <path d={`${path} L ${X(pts.length - 1)} ${pad.top + ch} L ${X(0)} ${pad.top + ch} Z`} fill="url(#trajGrad)"/>
+      <path d={path} fill="none" stroke={t.G} strokeWidth="2"/>
+      {pts.map((p, k) => <circle key={k} cx={X(k)} cy={Y(p.value)} r={k === 0 ? 3.5 : 2.2} fill={t.G} stroke={t.BG} strokeWidth="1"/>)}
+      {pts.map((p, k) => (k % every === 0 || k === pts.length - 1) ? <text key={`l${k}`} x={X(k)} y={height - 6} fontSize="8.5" fill={t.S} textAnchor="middle" fontFamily="monospace">{p.short}</text> : null)}
     </svg>
   );
 }
@@ -315,6 +336,7 @@ export default function App() {
   const [chatLoading, setChatLoading] = useState(false);
   const [categoryPeriod, setCategoryPeriod] = useState("thisMonth");
   const [drilldownCategory, setDrilldownCategory] = useState(null);
+  const [projAll, setProjAll] = useState(false);
   const [nicAmt, setNicAmt] = useState("");
   const [showNicInput, setShowNicInput] = useState(false);
   
@@ -547,6 +569,30 @@ export default function App() {
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   }, [monthsToGoal]);
 
+  // Month-by-month projection: at least 12 months, or through the next milestone (max 60)
+  const projectionRows = useMemo(() => {
+    if (avgMonthlySavings <= 0) return [];
+    const n = Math.min(Math.max(12, isFinite(monthsToGoal) ? monthsToGoal : 12), 60);
+    const now = new Date();
+    const rows = [];
+    let prev = totalNW;
+    for (let i = 1; i <= n; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const value = totalNW + avgMonthlySavings * i;
+      const next = MILESTONES.find(m => m.target > value);
+      rows.push({
+        i,
+        label: d.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+        short: d.getMonth() === 0 ? `Jan '${String(d.getFullYear()).slice(2)}` : d.toLocaleDateString("en-US", { month: "short" }),
+        value,
+        hit: MILESTONES.filter(m => prev < m.target && value >= m.target),
+        next,
+      });
+      prev = value;
+    }
+    return rows;
+  }, [avgMonthlySavings, monthsToGoal, totalNW]);
+
   const dynamicPresets = useMemo(() => {
     const expenseTxns = transactions.filter(tx => tx.type === "expense");
     if (expenseTxns.length < 10) return STARTER_PRESETS;
@@ -609,6 +655,18 @@ export default function App() {
       newW.nicContrib = (+newW.nicContrib||0) + amt;
     }
     return { assets: newA, debts: newD, weddingFund: newW };
+  };
+
+  // Jump straight to LOG as an expense, optionally with a preset already chosen
+  const quickLog = (preset) => {
+    setForm(f => ({
+      ...f, type: "expense", amount: "", note: "", date: todayStr(),
+      category: preset ? preset.category : "Food",
+      description: preset ? preset.word : "",
+      fromAccount: (preset && preset.defaultAccount) || f.fromAccount,
+    }));
+    setScreen("log");
+    try { window.scrollTo({ top: 0 }); } catch {}
   };
 
   const applyPreset = (preset) => {
@@ -773,13 +831,6 @@ export default function App() {
     setChatLoading(false);
   };
 
-  useEffect(() => {
-    if (screen === "mattbot" && loaded && !insightsLoading) {
-      const age = insightsCache?.timestamp ? Date.now() - insightsCache.timestamp : Infinity;
-      if (age >= CACHE_MS && transactions.length >= 5) loadInsights();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen, loaded]);
 
   const handleBalSave = () => {
     const newA = { ...assets };
@@ -974,84 +1025,7 @@ export default function App() {
             <div style={{textAlign:"center",padding:"10px 0 16px"}}>
               <img src="/matt-idle.png" alt="Matt-bot" className="mbBounce" style={{width:140,height:"auto",maxHeight:170,objectFit:"contain",display:"block",margin:"0 auto"}} onError={(e)=>{e.target.style.display="none"}}/>
               <div style={{fontSize:14,fontWeight:900,color:t.G,marginTop:6}}>🤖 MATT-BOT</div>
-              <div style={{fontSize:10,color:t.S,marginTop:2}}>{insightsLoading ? "🧠 analyzing your finances..." : "your mathematician & tutor"}</div>
-            </div>
-
-            {insights.length > 0 && (
-              <div style={{marginBottom:14}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <div className="lbl">💡 MATT-BOT NOTICED</div>
-                  <button onClick={()=>loadInsights(true)} disabled={insightsLoading} className="btn" style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:14,padding:"3px 8px",color:t.S,fontSize:9,fontWeight:700}}>
-                    {insightsLoading?<span className="spin">🔄</span>:"🔄"} REFRESH
-                  </button>
-                </div>
-                {insights.map((insight, i) => {
-                  const accent = insight.type === "alert" ? t.R : insight.type === "praise" ? t.G : insight.type === "projection" ? t.B : t.Y;
-                  return (
-                    <div key={i} className="insightCard slide" style={{background: `linear-gradient(135deg, ${accent}1a, ${accent}08)`,border: `1px solid ${accent}40`,borderRadius: 12, padding: "12px 14px", marginBottom: 8,animationDelay: `${i * 0.1}s`}}>
-                      <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-                        <div style={{fontSize:24,lineHeight:1}}>{insight.icon}</div>
-                        <div style={{flex:1}}>
-                          <div style={{fontSize:12,color:t.W,fontWeight:700,marginBottom:3}}>{insight.title}</div>
-                          <div style={{fontSize:11,color:t.S,lineHeight:1.5}}>{insight.body}</div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                {insightAge !== null && (
-                  <div style={{fontSize:9,color:t.S,textAlign:"center",fontStyle:"italic",marginTop:2}}>
-                    Updated {insightAge < 1 ? "just now" : insightAge < 60 ? `${insightAge}m ago` : `${Math.floor(insightAge/60)}h ago`}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {insightsLoading && insights.length === 0 && (
-              <div style={{textAlign:"center",padding:30,background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,marginBottom:14}}>
-                <div className="spin" style={{fontSize:32,marginBottom:8}}>🧠</div>
-                <div style={{fontSize:11,color:t.S}}>Matt-bot is thinking hard...</div>
-              </div>
-            )}
-
-            {insightsError && (
-              <div style={{background:`${t.R}1a`,border:`1px solid ${t.R}40`,borderRadius:10,padding:"10px 12px",marginBottom:14}}>
-                <div style={{fontSize:11,color:t.W}}>{insightsError}</div>
-              </div>
-            )}
-
-            {/* PROJECTION */}
-            <div style={{background:`linear-gradient(135deg, ${t.Y}14, ${t.G}08)`,border:`1px solid ${t.Y}40`,borderRadius:14,padding:"14px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
-              <div className="lbl" style={{color:t.Y}}>🔮 PROJECTION</div>
-              {isFinite(monthsToGoal) ? (
-                <>
-                  <div style={{fontSize:11,color:t.S,marginBottom:4}}>{projectionBasis.isOptimistic ? "At your best recent pace, you'll hit" : "At your current pace, you'll hit"}</div>
-                  <div style={{fontSize:14,color:t.W,fontWeight:700,marginBottom:2}}>{activeMilestone.icon} {activeMilestone.label}</div>
-                  <div style={{fontSize:18,color:t.Y,fontWeight:900}}>{projectedDate || `~${monthsToGoal} months`}</div>
-                  <div style={{fontSize:10,color:t.S,marginTop:4}}>
-                    {projectionBasis.isOptimistic
-                      ? `Based on your ${projectionBasis.count} savings month${projectionBasis.count===1?"":"s"} · $${fmt0(avgMonthlySavings)}/mo`
-                      : `Based on last ${projectionBasis.count} month${projectionBasis.count===1?"":"s"} avg · $${fmt0(avgMonthlySavings)}/mo`}
-                  </div>
-                  <div style={{marginTop:10}}>
-                    <ProjectionChart currentNW={totalNW} targetNW={activeMilestone.target} monthlySavings={avgMonthlySavings} monthsToGoal={monthsToGoal} t={t} theme={theme}/>
-                  </div>
-                </>
-              ) : (
-                <div style={{fontSize:11,color:t.S,marginTop:4,lineHeight:1.5}}>Need at least one savings month to project. Once any completed month shows you saving more than you spent, your projection will appear here. 📈</div>
-              )}
-            </div>
-
-            {/* INCOME VS EXPENSES */}
-            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                <div className="lbl">📈 INCOME VS EXPENSES</div>
-                <div style={{display:"flex",gap:10,fontSize:9}}>
-                  <span style={{color:t.G}}>● income</span>
-                  <span style={{color:t.R}}>● expense</span>
-                </div>
-              </div>
-              <LineChart data={monthlyStats} t={t} theme={theme}/>
+              <div style={{fontSize:10,color:t.S,marginTop:2}}>your mathematician & tutor</div>
             </div>
 
             {/* ═══ NEW: DISCRETIONARY BUDGET CARD ═══ */}
@@ -1136,6 +1110,96 @@ export default function App() {
                   <span>${fmt0(periodTotalSpend)}</span>
                 </div>
               )}
+            </div>
+
+            {/* PROJECTION */}
+            <div style={{background:`linear-gradient(135deg, ${t.Y}14, ${t.G}08)`,border:`1px solid ${t.Y}40`,borderRadius:14,padding:"14px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
+              <div className="lbl" style={{color:t.Y}}>🔮 PROJECTION</div>
+              {isFinite(monthsToGoal) ? (
+                <>
+                  <div style={{fontSize:11,color:t.S,marginBottom:4}}>{projectionBasis.isOptimistic ? "At your best recent pace, you'll hit" : "At your current pace, you'll hit"}</div>
+                  <div style={{fontSize:14,color:t.W,fontWeight:700,marginBottom:2}}>{activeMilestone.icon} {activeMilestone.label}</div>
+                  <div style={{fontSize:18,color:t.Y,fontWeight:900}}>{projectedDate || `~${monthsToGoal} months`}</div>
+                  <div style={{fontSize:10,color:t.S,marginTop:4}}>
+                    {projectionBasis.isOptimistic
+                      ? `Based on your ${projectionBasis.count} savings month${projectionBasis.count===1?"":"s"} · $${fmt0(avgMonthlySavings)}/mo`
+                      : `Based on last ${projectionBasis.count} month${projectionBasis.count===1?"":"s"} avg · $${fmt0(avgMonthlySavings)}/mo`}
+                  </div>
+                  <div style={{marginTop:10}}>
+                    <ProjectionChart rows={projectionRows} currentNW={totalNW} t={t}/>
+                  </div>
+                  {/* Month-by-month table */}
+                  <div style={{marginTop:12,borderTop:`1px solid ${t.BORDER}`,paddingTop:10}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1.1fr 1fr 1.2fr",fontSize:9,color:t.S,fontWeight:700,letterSpacing:"0.1em",padding:"0 6px 6px"}}>
+                      <span>MONTH</span><span style={{textAlign:"right"}}>NET WORTH</span><span style={{textAlign:"right"}}>TO NEXT GOAL</span>
+                    </div>
+                    <div>
+                      <div style={{display:"grid",gridTemplateColumns:"1.1fr 1fr 1.2fr",fontSize:11,padding:"7px 6px",borderRadius:8,background:t.cardSubtle,marginBottom:3}}>
+                        <span style={{color:t.W,fontWeight:700}}>Today</span>
+                        <span style={{textAlign:"right",color:t.W,fontWeight:700}}>${fmt0(totalNW)}</span>
+                        <span style={{textAlign:"right",color:t.S}}>${fmt0(Math.max(0, activeMilestone.target - totalNW))} {activeMilestone.icon}</span>
+                      </div>
+                      {(projAll ? projectionRows : projectionRows.slice(0, 12)).map(r => (
+                        <div key={r.i} style={{marginBottom:3,padding:"7px 6px",borderRadius:8,background:r.hit.length ? `${t.Y}22` : "transparent",border:r.hit.length ? `1px solid ${t.Y}66` : "1px solid transparent"}}>
+                          <div style={{display:"grid",gridTemplateColumns:"1.1fr 1fr 1.2fr",fontSize:11}}>
+                            <span style={{color:t.W}}>{r.label}</span>
+                            <span style={{textAlign:"right",color:t.G,fontWeight:700}}>${fmt0(r.value)}</span>
+                            <span style={{textAlign:"right",color:t.S}}>{r.next ? `$${fmt0(r.next.target - r.value)} ${r.next.icon}` : "🏁"}</span>
+                          </div>
+                          {r.hit.map(m => <div key={m.target} style={{fontSize:10,color:t.Y,fontWeight:700,marginTop:3}}>{m.icon} {m.label} reached</div>)}
+                        </div>
+                      ))}
+                    </div>
+                    {projectionRows.length > 12 && (
+                      <button onClick={() => setProjAll(v => !v)} className="btn" style={{width:"100%",marginTop:6,padding:"8px",borderRadius:10,background:t.cardSubtle,border:`1px solid ${t.BORDER}`,color:t.W,fontSize:10,fontWeight:700,letterSpacing:"0.08em"}}>
+                        {projAll ? "SHOW LESS ▴" : `SHOW ALL ${projectionRows.length} MONTHS ▾`}
+                      </button>
+                    )}
+                    <div style={{fontSize:9,color:t.S,marginTop:6,fontStyle:"italic",textAlign:"center"}}>Adds ${fmt0(avgMonthlySavings)} each month · investment growth not included</div>
+                  </div>
+                </>
+              ) : (
+                <div style={{fontSize:11,color:t.S,marginTop:4,lineHeight:1.5}}>Need at least one savings month to project. Once any completed month shows you saving more than you spent, your projection will appear here. 📈</div>
+              )}
+            </div>
+
+            {/* INCOME VS EXPENSES */}
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div className="lbl">📈 INCOME VS EXPENSES</div>
+                <div style={{display:"flex",gap:10,fontSize:9}}>
+                  <span style={{color:t.G}}>● income</span>
+                  <span style={{color:t.R}}>● expense</span>
+                </div>
+              </div>
+              <LineChart data={monthlyStats} t={t}/>
+              {/* Exact numbers, month by month */}
+              <div style={{marginTop:12,borderTop:`1px solid ${t.BORDER}`,paddingTop:10}}>
+                <div style={{display:"grid",gridTemplateColumns:"0.8fr 1fr 1fr 1fr",fontSize:9,color:t.S,fontWeight:700,letterSpacing:"0.1em",padding:"0 6px 6px"}}>
+                  <span>MONTH</span><span style={{textAlign:"right"}}>IN</span><span style={{textAlign:"right"}}>OUT</span><span style={{textAlign:"right"}}>NET</span>
+                </div>
+                {monthlyStats.map(m => (
+                  <div key={m.month} style={{display:"grid",gridTemplateColumns:"0.8fr 1fr 1fr 1fr",fontSize:11,padding:"6px",borderRadius:8,background:m.month===thisMonth?t.cardSubtle:"transparent"}}>
+                    <span style={{color:t.W,fontWeight:m.month===thisMonth?700:400}}>{monthShort(m.month)}{m.month===thisMonth?" •":""}</span>
+                    <span style={{textAlign:"right",color:t.G}}>${fmt0(m.income)}</span>
+                    <span style={{textAlign:"right",color:t.R}}>${fmt0(m.expense)}</span>
+                    <span style={{textAlign:"right",color:m.net>=0?t.G:t.R,fontWeight:700}}>{m.net<0?"−":""}${fmt0(Math.abs(m.net))}</span>
+                  </div>
+                ))}
+                {(() => {
+                  const n = monthlyStats.length || 1;
+                  const aIn = monthlyStats.reduce((a,m)=>a+m.income,0)/n, aOut = monthlyStats.reduce((a,m)=>a+m.expense,0)/n, aNet = aIn - aOut;
+                  return (
+                    <div style={{display:"grid",gridTemplateColumns:"0.8fr 1fr 1fr 1fr",fontSize:11,padding:"8px 6px 2px",marginTop:4,borderTop:`1px solid ${t.BORDER}`,fontWeight:700}}>
+                      <span style={{color:t.S}}>AVG</span>
+                      <span style={{textAlign:"right",color:t.G}}>${fmt0(aIn)}</span>
+                      <span style={{textAlign:"right",color:t.R}}>${fmt0(aOut)}</span>
+                      <span style={{textAlign:"right",color:aNet>=0?t.G:t.R}}>{aNet<0?"−":""}${fmt0(Math.abs(aNet))}</span>
+                    </div>
+                  );
+                })()}
+                <div style={{fontSize:9,color:t.S,marginTop:6,fontStyle:"italic",textAlign:"center"}}>• = current month, still in progress</div>
+              </div>
             </div>
 
             {/* CONVERSATIONAL CHAT */}
@@ -1268,6 +1332,18 @@ export default function App() {
         {/* ══ DASHBOARD ══ */}
         {screen==="dashboard"&&(
           <div className="slide">
+            {/* QUICK LOG — one tap to the LOG screen */}
+            <button onClick={() => quickLog(null)} className="btn" style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"16px",borderRadius:16,marginBottom:8,background:`linear-gradient(135deg, ${t.R}, #fb923c)`,color:t.btnText,fontSize:15,fontWeight:900,letterSpacing:"0.08em",...GL,boxShadow:`${t.aeroShadow}, 0 6px 20px ${t.R}55`}}>
+              <span style={{fontSize:20}}>💸</span> LOG EXPENSE
+            </button>
+            <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:12,paddingBottom:2,scrollbarWidth:"none"}}>
+              {dynamicPresets.map((p, i) => (
+                <button key={i} onClick={() => quickLog(p)} className="btn" style={{flex:"0 0 auto",display:"flex",alignItems:"center",gap:5,padding:"8px 11px",borderRadius:999,background:t.CARD,border:`1px solid ${t.BORDER}`,color:t.W,fontSize:11,fontWeight:700,...GL,boxShadow:t.aeroShadowSubtle}}>
+                  <span style={{fontSize:15}}>{p.emoji}</span>{p.word}
+                </button>
+              ))}
+            </div>
+
             <div style={{background: t.isDark ? "linear-gradient(135deg, rgba(52,211,153,0.18), rgba(96,165,250,0.10) 50%, rgba(167,139,250,0.06))" : t.isDark ? "linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.06))" : "linear-gradient(135deg, rgba(5,150,105,0.08), rgba(37,99,235,0.05))",border:`1px solid ${t.G}40`,borderRadius:16,padding:"18px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
               <div className="lbl">NET WORTH</div>
               <div style={{fontSize:32,fontWeight:900,color:t.W,letterSpacing:"-0.02em"}}>${fmt(totalNW)}</div>
