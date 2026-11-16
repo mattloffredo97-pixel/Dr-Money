@@ -315,6 +315,55 @@ function ProjectionChart({ rows, currentNW, t, height=170 }) {
   );
 }
 
+// ─── CASH VS INVESTMENTS HISTORY ─────────────────────────────────────────────
+// Same split as the HOME pills: investments = Personal + Joint + Sharkninja, cash = every other asset account
+const INVEST_IDS = ["investments", "joint_invest", "sharkninja"];
+const assetDelta = (tx) => {
+  const d = {};
+  const add = (id, v) => { if (ASSET_ACCOUNTS.some(a => a.id === id)) d[id] = (d[id] || 0) + v; };
+  if (tx.type === "income") add(tx.toAccount, tx.amount);
+  else if (tx.type === "expense") add(tx.fromAccount, -tx.amount);
+  else if (tx.type === "transfer") { add(tx.fromAccount, -tx.amount); add(tx.toAccount, tx.amount); }
+  return d;
+};
+const splitAssets = (bal) => {
+  let cash = 0, invest = 0;
+  ASSET_ACCOUNTS.forEach(a => { const v = +(bal[a.id] || 0); if (INVEST_IDS.includes(a.id)) invest += v; else cash += v; });
+  return { cash, invest };
+};
+
+function BalanceChart({ data, t, height=170 }) {
+  if (!data || data.length < 2) return <div style={{padding:24,textAlign:"center",fontSize:11,color:t.S,fontStyle:"italic"}}>Builds up as you log more months 📊</div>;
+  const width = 300;
+  const pad = { top: 12, right: 14, bottom: 22, left: 44 };
+  const cw = width - pad.left - pad.right;
+  const ch = height - pad.top - pad.bottom;
+  const vals = data.flatMap(d => [d.cash, d.invest]);
+  const step = 5000;
+  const yMin = Math.max(0, Math.floor(Math.min(...vals) * 0.95 / step) * step);
+  let yMax = Math.ceil(Math.max(...vals) * 1.03 / step) * step;
+  if (yMax <= yMin) yMax = yMin + step;
+  const X = (i) => pad.left + (i / (data.length - 1)) * cw;
+  const Y = (v) => pad.top + ch - ((v - yMin) / (yMax - yMin)) * ch;
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(p => yMin + (yMax - yMin) * p);
+  const line = (key) => data.map((d, i) => `${i === 0 ? "M" : "L"} ${X(i)} ${Y(d[key])}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{width:"100%",height:"auto",display:"block"}}>
+      {ticks.map((v, i) => (
+        <g key={i}>
+          <line x1={pad.left} y1={Y(v)} x2={width - pad.right} y2={Y(v)} stroke={t.chartGrid} strokeWidth="0.6"/>
+          <text x={pad.left - 5} y={Y(v) + 3} fontSize="8.5" fill={t.S} textAnchor="end" fontFamily="monospace">{fmtAxis(v)}</text>
+        </g>
+      ))}
+      <path d={line("cash")} fill="none" stroke={t.B} strokeWidth="2.2"/>
+      <path d={line("invest")} fill="none" stroke={t.P} strokeWidth="2.2"/>
+      {data.map((d, i) => <circle key={`c${i}`} cx={X(i)} cy={Y(d.cash)} r="2.8" fill={t.B} stroke={t.BG} strokeWidth="1"/>)}
+      {data.map((d, i) => <circle key={`v${i}`} cx={X(i)} cy={Y(d.invest)} r="2.8" fill={t.P} stroke={t.BG} strokeWidth="1"/>)}
+      {data.map((d, i) => <text key={`m${i}`} x={X(i)} y={height - 6} fontSize="8.5" fill={t.S} textAnchor="middle" fontFamily="monospace">{monthShort(d.month)}</text>)}
+    </svg>
+  );
+}
+
 export default function App() {
   const [data, setData]     = useState(EMPTY);
   const [loaded, setLoaded] = useState(false);
@@ -568,6 +617,41 @@ export default function App() {
     d.setMonth(d.getMonth() + monthsToGoal);
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   }, [monthsToGoal]);
+
+  // Month-end cash vs investments for the last 6 months.
+  // Rebuilt from logged transactions, anchored on each balance snapshot saved in ACCTS
+  // (that is where investment gains enter). Current month = live balances.
+  const balanceHistory = useMemo(() => {
+    const snaps = [...(balHistory || [])].filter(x => x && x.date && x.assets).sort((a, b) => a.date < b.date ? -1 : 1);
+    const txs = transactions.filter(tx => tx.date);
+    const firstData = [...txs.map(tx => tx.date), ...snaps.map(x => x.date)].sort()[0];
+    const applyTx = (bal, tx, sign) => { const d = assetDelta(tx); for (const k in d) bal[k] = (+bal[k] || 0) + sign * d[k]; };
+    const balanceAt = (T) => {
+      const prior = snaps.filter(x => x.date <= T);
+      if (prior.length) {
+        const snap = prior[prior.length - 1];
+        const bal = { ...snap.assets };
+        txs.filter(tx => tx.date > snap.date && tx.date <= T).forEach(tx => applyTx(bal, tx, 1));
+        return bal;
+      }
+      const later = snaps.find(x => x.date > T);
+      const bal = { ...(later ? later.assets : assets) };
+      const until = later ? later.date : "9999-12-31";
+      txs.filter(tx => tx.date > T && tx.date <= until).forEach(tx => applyTx(bal, tx, -1));
+      return bal;
+    };
+    const now = new Date();
+    const rows = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      if (i > 0 && firstData && month < firstData.slice(0, 7)) continue;
+      const bal = i === 0 ? assets : balanceAt(`${month}-31`);
+      const { cash, invest } = splitAssets(bal);
+      rows.push({ month, cash, invest, total: cash + invest });
+    }
+    return rows;
+  }, [transactions, balHistory, assets]);
 
   // Month-by-month projection: at least 12 months, or through the next milestone (max 60)
   const projectionRows = useMemo(() => {
@@ -1199,6 +1283,50 @@ export default function App() {
                   );
                 })()}
                 <div style={{fontSize:9,color:t.S,marginTop:6,fontStyle:"italic",textAlign:"center"}}>• = current month, still in progress</div>
+              </div>
+            </div>
+
+            {/* CASH VS INVESTMENTS */}
+            <div style={{background:t.CARD,border:`1px solid ${t.BORDER}`,borderRadius:12,padding:"14px",marginBottom:12,...GL,boxShadow:t.aeroShadow}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div className="lbl" style={{margin:0}}>💼 CASH VS INVESTMENTS</div>
+                <div style={{display:"flex",gap:10,fontSize:9}}>
+                  <span style={{color:t.B}}>● cash</span>
+                  <span style={{color:t.P}}>● invest</span>
+                </div>
+              </div>
+              <BalanceChart data={balanceHistory} t={t}/>
+              <div style={{marginTop:12,borderTop:`1px solid ${t.BORDER}`,paddingTop:10}}>
+                <div style={{display:"grid",gridTemplateColumns:"0.8fr 1fr 1fr 1fr",fontSize:9,color:t.S,fontWeight:700,letterSpacing:"0.1em",padding:"0 6px 6px"}}>
+                  <span>MONTH</span><span style={{textAlign:"right"}}>CASH</span><span style={{textAlign:"right"}}>INVEST</span><span style={{textAlign:"right"}}>TOTAL</span>
+                </div>
+                {balanceHistory.map(r => (
+                  <div key={r.month} style={{display:"grid",gridTemplateColumns:"0.8fr 1fr 1fr 1fr",fontSize:11,padding:"6px",borderRadius:8,background:r.month===thisMonth?t.cardSubtle:"transparent"}}>
+                    <span style={{color:t.W,fontWeight:r.month===thisMonth?700:400}}>{monthShort(r.month)}{r.month===thisMonth?" •":""}</span>
+                    <span style={{textAlign:"right",color:t.B}}>${fmt0(r.cash)}</span>
+                    <span style={{textAlign:"right",color:t.P}}>${fmt0(r.invest)}</span>
+                    <span style={{textAlign:"right",color:t.W,fontWeight:700}}>${fmt0(r.total)}</span>
+                  </div>
+                ))}
+                {balanceHistory.length >= 2 && (() => {
+                  const a = balanceHistory[0], b = balanceHistory[balanceHistory.length - 1];
+                  const chg = (from, to) => {
+                    const diff = to - from;
+                    return `${diff >= 0 ? "+" : "−"}$${fmt0(Math.abs(diff))}`;
+                  };
+                  return (
+                    <div style={{marginTop:6,paddingTop:8,borderTop:`1px solid ${t.BORDER}`,fontSize:11}}>
+                      <div style={{fontSize:9,color:t.S,fontWeight:700,letterSpacing:"0.1em",marginBottom:6,padding:"0 6px"}}>CHANGE SINCE {monthShort(a.month).toUpperCase()}</div>
+                      <div style={{display:"flex",justifyContent:"space-between",padding:"0 6px",marginBottom:4}}>
+                        <span style={{color:t.S}}>💵 Cash</span><span style={{color:b.cash>=a.cash?t.G:t.R,fontWeight:700}}>{chg(a.cash, b.cash)}</span>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",padding:"0 6px"}}>
+                        <span style={{color:t.S}}>📈 Investments</span><span style={{color:b.invest>=a.invest?t.G:t.R,fontWeight:700}}>{chg(a.invest, b.invest)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div style={{fontSize:9,color:t.S,marginTop:8,fontStyle:"italic",textAlign:"center",lineHeight:1.5}}>Month-end balances · investment gains appear when you update balances in ACCTS</div>
               </div>
             </div>
 
